@@ -2,7 +2,7 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
-      <module fileurl="file://$PROJECT_DIR$/.idea/http2-typescript.iml" filepath="$PROJECT_DIR$/.idea/http2-typescript.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/node-http2-typescript.iml" filepath="$PROJECT_DIR$/.idea/node-http2-typescript.iml" />
     </modules>
   </component>
 </project>
