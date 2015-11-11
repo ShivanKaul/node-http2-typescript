@@ -1,4 +1,11 @@
 {
   "name": "http2-typescript",
-  "version": "0.0.1"
+  "description": "An HTTP/2 server written in TypeScript",
+  "version": "0.0.1",
+  "main": "./lib/Server.js",
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/michaelkourlas/http2-typescript"
+  },
+  "license": "Apache-2.0"
 }
