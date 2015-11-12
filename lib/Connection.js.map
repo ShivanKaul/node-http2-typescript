@@ -1,1 +1,1 @@
-{"version":3,"file":"Connection.js","sourceRoot":"","sources":["Connection.ts"],"names":["Connection","Connection.constructor"],"mappings":"AAAA,IAAM,UAAU;IAAhBA,SAAMA,UAAUA;IAEhBC,CAACA;IAADD,iBAACA;AAADA,CAACA,AAFD,IAEC"}
+{"version":3,"file":"connection.js","sourceRoot":"","sources":["connection.ts"],"names":["Connection","Connection.constructor"],"mappings":"AAAA,IAAa,UAAU;IAAvBA,SAAaA,UAAUA;IAEvBC,CAACA;IAADD,iBAACA;AAADA,CAACA,AAFD,IAEC;AAFY,kBAAU,GAAV,UAEZ,CAAA"}

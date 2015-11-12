@@ -1,3 +1,3 @@
-class Frame {
+export class Frame {
 
 }

@@ -1,3 +1,3 @@
-class Stream {
+export class Stream {
 
 }

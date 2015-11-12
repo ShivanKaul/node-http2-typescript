@@ -1,1 +1,1 @@
-{"version":3,"file":"Stream.js","sourceRoot":"","sources":["Stream.ts"],"names":["Stream","Stream.constructor"],"mappings":"AAAA,IAAM,MAAM;IAAZA,SAAMA,MAAMA;IAEZC,CAACA;IAADD,aAACA;AAADA,CAACA,AAFD,IAEC"}
+{"version":3,"file":"stream.js","sourceRoot":"","sources":["stream.ts"],"names":["Stream","Stream.constructor"],"mappings":"AAAA,IAAa,MAAM;IAAnBA,SAAaA,MAAMA;IAEnBC,CAACA;IAADD,aAACA;AAADA,CAACA,AAFD,IAEC;AAFY,cAAM,GAAN,MAEZ,CAAA"}

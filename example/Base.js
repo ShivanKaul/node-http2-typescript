@@ -1,3 +1,3 @@
-var server = require("../lib/Server");
+var server = require("../lib/server");
 new server.Server();
-//# sourceMappingURL=Base.js.map
+//# sourceMappingURL=base.js.map
