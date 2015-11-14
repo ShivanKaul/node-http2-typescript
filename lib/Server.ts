@@ -1,4 +1,4 @@
-/// <reference path="../vendor/node-0.12.d.ts" />
+/// <reference path="../vendor/node.d.ts" />
 
 import * as net from "net";
 
