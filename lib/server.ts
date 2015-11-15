@@ -13,8 +13,10 @@ export class Server {
     private _connections: Connection[];
 
     constructor(config: ServerConfig) {
-        this._server = net.createServer(function (socket) {
-            this._connections.add(new Connection(socket));
+        this._connections = [];
+
+        this._server = net.createServer((socket) => {
+            this._connections.push(new Connection(socket));
         });
         if (config.port) {
             this._port = config.port;

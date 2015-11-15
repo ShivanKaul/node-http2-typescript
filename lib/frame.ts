@@ -19,10 +19,10 @@ export abstract class Frame {
     /**
      * The size of the frame header in octets.
      */
-    private static HeaderSize = 9;
+    static HeaderSize = 9;
 
     protected _length: number;
-    private _type: FrameType;
+    protected _type: FrameType;
     protected _flags: number;
     protected _streamId: number;
 
@@ -57,16 +57,16 @@ export abstract class Frame {
         buffer.writeUIntBE(this._length, 0, 3);
         buffer.writeUIntBE(this._type, 3, 1);
         buffer.writeUIntBE(this._flags, 4, 1);
-        buffer.writeUIntBE(this._streamId & (0 << 31), 5, 4);
+        buffer.writeUIntBE(this._streamId & 0x7ffffff, 5, 4);
         return buffer;
     }
 }
 
-export const enum SettingsFrameFlags {
+export const enum SettingsFlags {
     Ack = 0x1
 }
 
-export const enum SettingsFrameParameters {
+export const enum SettingsParams {
     /**
      * The maximum size of the header compression table used to decode header
      * blocks. The default value is 4096 octets.
@@ -95,35 +95,35 @@ export const enum SettingsFrameParameters {
     MaxHeaderListSize = 0x6
 }
 
-export interface SettingsFrameParameterPair {
-    paramType: SettingsFrameParameters;
-    paramValue: number;
+export interface SettingsPair {
+    param: SettingsParams;
+    value: number;
 }
 
 export class SettingsFrame extends Frame {
     static FrameType = FrameType.Settings;
     static DefaultParametersLength = 30;
     static DefaultParameters = [{
-        paramType: SettingsFrameParameters.HeaderTableSize,
-        paramValue: 4096
+        param: SettingsParams.HeaderTableSize,
+        value: 4096
     }, {
-        paramType: SettingsFrameParameters.EnablePush,
-        paramValue: 1
+        param: SettingsParams.EnablePush,
+        value: 1
     }, {
-        paramType: SettingsFrameParameters.MaxConcurrentStreams,
-        paramValue: null
+        param: SettingsParams.MaxConcurrentStreams,
+        value: null
     }, {
-        paramType: SettingsFrameParameters.InitialWindowSize,
-        paramValue: 65535
+        param: SettingsParams.InitialWindowSize,
+        value: 65535
     }, {
-        paramType: SettingsFrameParameters.MaxFrameSize,
-        paramValue: 16384
+        param: SettingsParams.MaxFrameSize,
+        value: 16384
     }, {
-        paramType: SettingsFrameParameters.MaxHeaderListSize,
-        paramValue: 1024
+        param: SettingsParams.MaxHeaderListSize,
+        value: 1024
     }];
 
-    private _parameters: SettingsFrameParameterPair[];
+    private _parameters: SettingsPair[];
 
     constructor(frameData?: Buffer, ack?: boolean) {
         if (frameData !== undefined) {
@@ -141,7 +141,7 @@ export class SettingsFrame extends Frame {
                     Http2ErrorType.FrameSizeError);
             }
 
-            if (this._flags & SettingsFrameFlags.Ack && this._length != 0) {
+            if (this._flags & SettingsFlags.Ack && this._length != 0) {
                 throw new Http2Error("Invalid SETTINGS frame size",
                     Http2ErrorType.FrameSizeError);
             }
@@ -150,31 +150,31 @@ export class SettingsFrame extends Frame {
             while (index < this._length) {
                 var parameter: number = frameData.readUIntBE(index, 2);
                 var value: number = frameData.readUIntBE(index + 2, 4);
-                if (parameter == SettingsFrameParameters.EnablePush) {
+                if (parameter == SettingsParams.EnablePush) {
                     if (value != 0 && value != 1) {
                         throw new Http2Error("Invalid SETTINGS frame" +
                             " parameter value", Http2ErrorType.ProtocolError);
                     }
-                } else if (parameter == SettingsFrameParameters.InitialWindowSize) {
+                } else if (parameter == SettingsParams.InitialWindowSize) {
                     if (value > Math.pow(2, 31) - 1) {
                         throw new Http2Error("Invalid SETTINGS frame" +
                             " parameter value", Http2ErrorType.ProtocolError);
                     }
-                } else if (parameter == SettingsFrameParameters.MaxFrameSize) {
+                } else if (parameter == SettingsParams.MaxFrameSize) {
                     if (value > Math.pow(2, 24) - 1) {
                         throw new Http2Error("Invalid SETTINGS frame" +
                             " parameter value", Http2ErrorType.ProtocolError);
                     }
                 }
                 this._parameters.push({
-                    paramType: parameter,
-                    paramValue: value
+                    param: parameter,
+                    value: value
                 });
                 index += 6;
             }
         } else {
             super(undefined, SettingsFrame.DefaultParametersLength,
-                SettingsFrame.FrameType, ack ? SettingsFrameFlags.Ack : 0, 0);
+                SettingsFrame.FrameType, ack ? SettingsFlags.Ack : 0, 0);
         }
     }
 
@@ -183,16 +183,16 @@ export class SettingsFrame extends Frame {
         this._length = SettingsFrame.DefaultParametersLength;
     }
 
-    getValue(parameter: SettingsFrameParameters): number {
+    getValue(parameter: SettingsParams): number {
         for (var item of this._parameters) {
-            if (item.paramType === parameter) {
-                return item.paramValue;
+            if (item.param === parameter) {
+                return item.value;
             }
         }
 
         for (var item of SettingsFrame.DefaultParameters) {
-            if (item.paramType === parameter) {
-                return item.paramValue;
+            if (item.param === parameter) {
+                return item.value;
             }
         }
 
@@ -201,13 +201,47 @@ export class SettingsFrame extends Frame {
 
     getBytes(): Buffer {
         var buffer = super.getBytes();
-        if (!(this._flags & SettingsFrameFlags.Ack)) {
-            var index: number = 9;
+        if (!(this._flags & SettingsFlags.Ack)) {
+            var index: number = Frame.HeaderSize;
             for (var item of this._parameters) {
-                buffer.writeUIntBE(item.paramType, index, 2);
-                buffer.writeUIntBE(item.paramValue, index + 2, 4);
+                buffer.writeUIntBE(item.param, index, 2);
+                buffer.writeUIntBE(item.value, index + 2, 4);
             }
         }
+        return buffer;
+    }
+}
+
+export class GoAwayFrame extends Frame {
+    static FrameType = FrameType.GoAway;
+
+    private _lastStreamId: number;
+    private _errorCode: Http2ErrorType;
+
+    constructor(frameData?: Buffer, lastStreamId?: number,
+                errorCode?: Http2ErrorType) {
+        if (frameData !== undefined) {
+            super(frameData);
+
+            if (this._streamId != 0) {
+                throw new Http2Error("Invalid GOAWAY frame stream type",
+                    Http2ErrorType.ProtocolError);
+            }
+
+            this._lastStreamId = frameData.readUIntBE(Frame.HeaderSize, 4);
+            this._errorCode = frameData.readUIntBE(Frame.HeaderSize + 4, 4);
+        } else {
+            super(undefined, 8, GoAwayFrame.FrameType, 0, 0);
+
+            this._lastStreamId = lastStreamId;
+            this._errorCode = errorCode;
+        }
+    }
+
+    getBytes(): Buffer {
+        var buffer = super.getBytes();
+        buffer.writeUIntBE(this._lastStreamId & 0x7ffffff, Frame.HeaderSize, 4);
+        buffer.writeUIntBE(this._errorCode, Frame.HeaderSize + 4, 4);
         return buffer;
     }
 }
