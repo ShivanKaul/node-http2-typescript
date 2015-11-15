@@ -2,12 +2,15 @@
 
 import {Socket} from "net";
 import {Frame} from "./frame";
+import {StreamPair} from "./stream";
 
 export class Connection {
+    static CONNECTION_PREFACE: string = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
+
     private _socket: Socket;
-
+    private _streams: StreamPair[];
     private _settings: Settings;
-
+    private _receivedConnectionPreface: boolean;
     private _dataBuffer: Buffer;
     private _dataBufferIndex: number;
     private _dataBufferFrameLength: number;
@@ -15,15 +18,22 @@ export class Connection {
     constructor(socket: Socket) {
         this._socket = socket;
         this._socket.on("data", (data) => this.onData(data));
-
         this._settings = new Settings();
-
+        this._receivedConnectionPreface = false;
         this._dataBuffer = new Buffer(this._settings.maxFrameSize);
         this._dataBufferIndex = 0;
         this._dataBufferFrameLength = -1;
     }
 
-    private onNewFrame(frame: Frame): void {
+    private sendConnectionPreface(): void {
+        this._socket.write(Connection.CONNECTION_PREFACE);
+    }
+
+    private sendFrame(frame: Frame): void {
+        this._socket.write(frame.getBytes());
+    }
+
+    private onFrame(frame: Frame): void {
 
     }
 
@@ -39,6 +49,19 @@ export class Connection {
         // Copy incoming data to data buffer
         data.copy(this._dataBuffer, this._dataBufferIndex, 0, data.length);
         this._dataBufferIndex += data.length;
+
+        // If the connection preface been received
+        if (!this._receivedConnectionPreface) {
+            if (this._dataBuffer.length > 24) {
+                var receivedData = this._dataBuffer.toString("utf-8", 0, 24);
+                if (receivedData == Connection.CONNECTION_PREFACE) {
+                    this._receivedConnectionPreface = true;
+                } else {
+                    // TODO: Handle connection preface error
+                }
+            }
+
+        }
 
         // If the first 3 bytes of a new frame have been processed, determine
         // the frame size
@@ -58,7 +81,7 @@ export class Connection {
             this._dataBuffer.copy(frameBuffer, 0, 0, frameBuffer.length);
 
             var frame: Frame = Frame.parse(frameBuffer);
-            this.onNewFrame(frame);
+            this.onFrame(frame);
 
             if (this._dataBufferIndex > this._dataBufferFrameLength) {
                 this._dataBuffer.copy(this._dataBuffer, 0,
