@@ -1,28 +1,45 @@
 /// <reference path="../vendor/node.d.ts" />
 
 import {Socket} from "net";
-import {Frame} from "./frame";
 import {StreamPair} from "./stream";
+import {Frame, FrameType, SettingsFrame, SettingsFrameParameters} from "./frame";
 
 export class Connection {
     static CONNECTION_PREFACE: string = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
 
     private _socket: Socket;
+
     private _streams: StreamPair[];
-    private _settings: Settings;
-    private _receivedConnectionPreface: boolean;
+
+    private _serverSettings: SettingsFrame;
+    private _clientSettings: SettingsFrame;
+
     private _dataBuffer: Buffer;
     private _dataBufferIndex: number;
     private _dataBufferFrameLength: number;
 
+    private _receivedPreface: boolean;
+    private _receivedSettingsFrame: boolean;
+    private _errorOccurred: boolean;
+
     constructor(socket: Socket) {
         this._socket = socket;
         this._socket.on("data", (data) => this.onData(data));
-        this._settings = new Settings();
-        this._receivedConnectionPreface = false;
-        this._dataBuffer = new Buffer(this._settings.maxFrameSize);
+
+        this._streams = [];
+
+        this._serverSettings = new SettingsFrame();
+        this._serverSettings.setDefaults();
+        this._clientSettings = null;
+
+        this._dataBuffer = new Buffer(this._serverSettings.getValue(
+            SettingsFrameParameters.MaxFrameSize));
         this._dataBufferIndex = 0;
         this._dataBufferFrameLength = -1;
+
+        this._receivedPreface = false;
+        this._receivedSettingsFrame = false;
+        this._errorOccurred = false;
     }
 
     private sendConnectionPreface(): void {
@@ -34,7 +51,17 @@ export class Connection {
     }
 
     private onFrame(frame: Frame): void {
+        if (!this._receivedPreface) {
+            // TODO: Handle error
+        }
 
+        if (!this._receivedSettingsFrame && frame.type !== FrameType.Settings) {
+            // TODO: Handle error
+        } else {
+            this._clientSettings = <SettingsFrame>frame;
+            this.sendConnectionPreface();
+            this.sendFrame(this._serverSettings);
+        }
     }
 
     private onData(data: Buffer): void {
@@ -50,12 +77,12 @@ export class Connection {
         data.copy(this._dataBuffer, this._dataBufferIndex, 0, data.length);
         this._dataBufferIndex += data.length;
 
-        // If the connection preface been received
-        if (!this._receivedConnectionPreface) {
+        // If the connection preface been received, process it
+        if (!this._receivedPreface) {
             if (this._dataBuffer.length > 24) {
                 var receivedData = this._dataBuffer.toString("utf-8", 0, 24);
                 if (receivedData == Connection.CONNECTION_PREFACE) {
-                    this._receivedConnectionPreface = true;
+                    this._receivedPreface = true;
                 } else {
                     // TODO: Handle connection preface error
                 }
@@ -68,7 +95,9 @@ export class Connection {
         if (this._dataBufferFrameLength == -1) {
             if (this._dataBufferIndex >= 24) {
                 this._dataBufferFrameLength = this._dataBuffer.readUIntBE(0, 3);
-                if (this._dataBufferFrameLength > this._settings.maxFrameSize) {
+                if (this._dataBufferFrameLength >
+                    this._serverSettings.getValue(
+                        SettingsFrameParameters.MaxFrameSize)) {
                     // TODO: Handle frame size error
                 }
             }
@@ -94,90 +123,5 @@ export class Connection {
             }
             this._dataBufferFrameLength = -1;
         }
-    }
-}
-
-/**
- * Settings associated with a Connection.
- */
-export class Settings {
-    static DEFAULT_HEADER_TABLE_SIZE: number = 4096;
-    static DEFAULT_ENABLE_PUSH: boolean = true;
-    static DEFAULT_MAX_CONCURRENT_STREAMS: number = null;
-    static DEFAULT_INITIAL_WINDOW_SIZE: number = 65535;
-    static DEFAULT_MAX_FRAME_SIZE: number = 16384;
-
-    /**
-     * The maximum size of the header compression table used to decode header
-     * blocks. The default value is 4096 octets.
-     */
-    private _headerTableSize: number;
-    /**
-     * If true, server push is enabled. The default value is true.
-     */
-    private _enablePush: boolean;
-    /**
-     * The maximum number of concurrent streams that the client will allow.
-     * A value of null indicates that there is no limit. The default value is
-     * null.
-     */
-    private _maxConcurrentStreams: number;
-    /**
-     * The initial window size for stream-level flow-control. The default value
-     * is 65,535 octets.
-     */
-    private _initialWindowSize: number;
-    /**
-     * The maximum frame size that the client will receive. The maximum value
-     * is 16,777,215 octets. The default value is 16,384 octets.
-     */
-    private _maxFrameSize: number;
-
-    constructor() {
-        this.headerTableSize = Settings.DEFAULT_HEADER_TABLE_SIZE;
-        this.enablePush = Settings.DEFAULT_ENABLE_PUSH;
-        this.maxConcurrentStreams = Settings.DEFAULT_MAX_CONCURRENT_STREAMS;
-        this.initialWindowSize = Settings.DEFAULT_INITIAL_WINDOW_SIZE;
-        this.maxFrameSize = Settings.DEFAULT_MAX_FRAME_SIZE;
-    }
-
-    get headerTableSize(): number {
-        return this._headerTableSize;
-    }
-
-    set headerTableSize(headerTableSize: number) {
-        this._headerTableSize = headerTableSize;
-    }
-
-    get enablePush(): boolean {
-        return this._enablePush;
-    }
-
-    set enablePush(enablePush: boolean) {
-        this._enablePush = enablePush;
-    }
-
-    get maxConcurrentStreams(): number {
-        return this._maxConcurrentStreams;
-    }
-
-    set maxConcurrentStreams(maxConcurrentStreams: number) {
-        this._maxConcurrentStreams = maxConcurrentStreams;
-    }
-
-    get initialWindowSize(): number {
-        return this._initialWindowSize;
-    }
-
-    set initialWindowSize(initialWindowSize: number) {
-        this._initialWindowSize = initialWindowSize;
-    }
-
-    get maxFrameSize(): number {
-        return this._maxFrameSize;
-    }
-
-    set maxFrameSize(maxFrameSize: number) {
-        this._maxFrameSize = maxFrameSize;
     }
 }
