@@ -1,14 +1,24 @@
 /// <reference path="../vendor/node.d.ts" />
 
 import {Socket} from "net";
-import {StreamPair} from "./stream";
+
+import {Http2ErrorType, Http2Error} from "./error"
 import {FrameType, Frame, SettingsFlags, SettingsParams, SettingsFrame,
     GoAwayFrame} from "./frame";
-import {Http2Error, Http2ErrorType} from "./error";
+import {Server} from "./server";
+import {StreamPair} from "./stream";
 
+/**
+ * Represents an HTTP/2 connection.
+ */
 export class Connection {
+    /**
+     * The HTTP/2 client connection preface.
+     */
     private static CONNECTION_PREFACE: string =
         "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
+
+    private _server: Server;
 
     private _socket: Socket;
 
@@ -27,7 +37,16 @@ export class Connection {
     private _goAwayFrameSent: boolean;
     private _errorOccurred: boolean;
 
-    constructor(socket: Socket) {
+    /**
+     * Initializes a new instance of the Connection class.
+     *
+     * @param server The server responsible for translating HTTP methods
+     *               and URIs into data.
+     * @param socket The TCP socket associated with the connection.
+     */
+    constructor(server: Server, socket: Socket) {
+        this._server = server;
+
         this._socket = socket;
         this._socket.on("data", (data) => this.onData(data));
 
@@ -49,6 +68,12 @@ export class Connection {
         this._errorOccurred = false;
     }
 
+    /**
+     * Gets the most recent client-initiated stream ID. Client-initiated stream
+     * IDs are always odd numbers.
+     *
+     * @returns {number} The most recent client-initiated stream ID.
+     */
     private getLastClientInitiatedStreamId(): number {
         var maxOddId = 0;
         for (var item of this._streams) {
@@ -59,10 +84,20 @@ export class Connection {
         return maxOddId;
     }
 
+    /**
+     * Sends a frame to the server.
+     *
+     * @param frame The frame to send to the server.
+     */
     private sendFrame(frame: Frame): void {
         this._socket.write(frame.getBytes());
     }
 
+    /**
+     * Sends a GOAWAY frame to the server when an error occurs.
+     *
+     * @param error The error that occurred.
+     */
     private sendError(error: Http2Error): void {
         var frame = new GoAwayFrame(undefined,
             this.getLastClientInitiatedStreamId(), error.type);
@@ -73,6 +108,12 @@ export class Connection {
         this._socket.end();
     }
 
+    /**
+     * Called when a frame has been received from the server. Processes the
+     * frames by calling the appropriate method.
+     *
+     * @param frame The frame received from the server.
+     */
     private onFrame(frame: Frame): void {
         try {
             if (frame === null) {
@@ -115,11 +156,24 @@ export class Connection {
         }
     }
 
+    /**
+     * Called when a SETTINGS frame is received from the client. In response,
+     * the server saves the SETTINGS frame and sends an empty SETTINGS frame
+     * with the ACK flag enabled.
+     *
+     * @param frame The SETTINGS frame received from the client.
+     */
     private onSettingsFrame(frame: SettingsFrame): void {
         this._clientSettings = frame;
         this.sendFrame(new SettingsFrame(undefined, true));
     }
 
+    /**
+     * Called when data is received from the client. This data is usually
+     * processed into frames and passed to the onFrame method.
+     *
+     * @param data The data received from the client.
+     */
     private onData(data: Buffer): void {
         try {
             // If data buffer too small to hold incoming data, allocate a larger
@@ -134,12 +188,15 @@ export class Connection {
             data.copy(this._dataBuffer, this._dataBufferIndex, 0, data.length);
             this._dataBufferIndex += data.length;
 
-            // If the connection preface been received, process it
+            // If the connection preface has not yet been received, check to
+            // see if it should have been received
             if (!this._receivedPreface) {
                 if (this._dataBufferIndex >=
                     Connection.CONNECTION_PREFACE.length) {
                     var receivedData = this._dataBuffer.toString("utf-8", 0,
                         Connection.CONNECTION_PREFACE.length);
+                    // If connection preface has been received, remove from
+                    // data buffer and flag it as having been received
                     if (receivedData === Connection.CONNECTION_PREFACE) {
                         this._receivedPreface = true;
                         if (this._dataBufferIndex >
@@ -153,6 +210,8 @@ export class Connection {
                             this._dataBufferIndex = 0;
                         }
                     } else {
+                        // Otherwise, throw error as it should have been
+                        // received
                         throw new Http2Error("Connection preface not received",
                             Http2ErrorType.ProtocolError);
                     }
@@ -169,6 +228,7 @@ export class Connection {
                         this._dataBufferFrameLength =
                             this._dataBuffer.readUIntBE(0, 3) +
                             Frame.HeaderSize;
+                        // If frame size exceeds maximum, throw error
                         if (this._dataBufferFrameLength - Frame.HeaderSize >
                             this._serverSettings.getValue(
                                 SettingsParams.MaxFrameSize)) {
@@ -191,6 +251,8 @@ export class Connection {
                     var frame: Frame = Frame.parse(frameBuffer);
                     this.onFrame(frame);
 
+                    // If there are still bytes left in the buffer, move those
+                    // bytes to the beginning of the buffer
                     if (this._dataBufferIndex > this._dataBufferFrameLength) {
                         var tempBuffer = new Buffer(this._dataBuffer.length);
                         this._dataBuffer.copy(tempBuffer, 0,

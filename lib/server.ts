@@ -16,7 +16,7 @@ export class Server {
         this._connections = [];
 
         this._server = net.createServer((socket) => {
-            this._connections.push(new Connection(socket));
+            this._connections.push(new Connection(this, socket));
         });
         if (config.port) {
             this._port = config.port;
