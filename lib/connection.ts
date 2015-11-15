@@ -2,7 +2,7 @@
 
 import {Socket} from "net";
 import {StreamPair} from "./stream";
-import {Frame, FrameType, SettingsFrame, SettingsParams,
+import {FrameType, Frame, SettingsFlags, SettingsParams, SettingsFrame,
     GoAwayFrame} from "./frame";
 import {Http2Error, Http2ErrorType} from "./error";
 
@@ -15,6 +15,7 @@ export class Connection {
     private _streams: StreamPair[];
 
     private _serverSettings: SettingsFrame;
+    private _lastServerSettingsAcknowledged: boolean;
     private _clientSettings: SettingsFrame;
 
     private _dataBuffer: Buffer;
@@ -34,6 +35,7 @@ export class Connection {
 
         this._serverSettings = new SettingsFrame();
         this._serverSettings.setDefaults();
+        this._lastServerSettingsAcknowledged = false;
         this._clientSettings = null;
 
         this._dataBuffer = new Buffer(this._serverSettings.getValue(
@@ -50,7 +52,7 @@ export class Connection {
     private getLastClientInitiatedStreamId(): number {
         var maxOddId = 0;
         for (var item of this._streams) {
-            if (item.streamId % 2 != 0 && item.streamId > maxOddId) {
+            if (item.streamId % 2 !== 0 && item.streamId > maxOddId) {
                 maxOddId = item.streamId;
             }
         }
@@ -73,6 +75,11 @@ export class Connection {
 
     private onFrame(frame: Frame): void {
         try {
+            if (frame === null) {
+                // Discard unrecognized frames
+                return;
+            }
+
             if (!this._receivedPreface) {
                 throw new Http2Error("Frame received before preface",
                     Http2ErrorType.ProtocolError);
@@ -86,7 +93,18 @@ export class Connection {
                     this._receivedSettingsFrame = true;
                     this.sendFrame(this._serverSettings);
                     this.onSettingsFrame(<SettingsFrame>frame);
+                    return;
                 }
+            }
+
+            if (frame.type === FrameType.Settings) {
+                if (frame.flags & SettingsFlags.Ack) {
+                    // TODO: Send error using timeout if not acknowledged
+                    this._lastServerSettingsAcknowledged = true;
+                } else {
+                    this.onSettingsFrame(<SettingsFrame>frame);
+                }
+                return;
             }
         } catch (error) {
             if (error instanceof Http2Error) {
@@ -122,7 +140,7 @@ export class Connection {
                     Connection.CONNECTION_PREFACE.length) {
                     var receivedData = this._dataBuffer.toString("utf-8", 0,
                         Connection.CONNECTION_PREFACE.length);
-                    if (receivedData == Connection.CONNECTION_PREFACE) {
+                    if (receivedData === Connection.CONNECTION_PREFACE) {
                         this._receivedPreface = true;
                         if (this._dataBufferIndex >
                             Connection.CONNECTION_PREFACE.length) {
@@ -143,43 +161,50 @@ export class Connection {
                 }
             }
 
-            // If the first 3 bytes of a new frame have been processed,
-            // determine the frame size
-            if (this._dataBufferFrameLength == -1) {
-                if (this._dataBufferIndex >= 3) {
-                    this._dataBufferFrameLength =
-                        this._dataBuffer.readUIntBE(0, 3) + Frame.HeaderSize;
-                    if (this._dataBufferFrameLength - Frame.HeaderSize >
-                        this._serverSettings.getValue(
-                            SettingsParams.MaxFrameSize)) {
-                        throw new Http2Error("Frame size exceeds maximum",
-                            Http2ErrorType.FrameSizeError);
+            while (true) {
+                // If the first 3 bytes of a new frame have been processed,
+                // determine the frame size
+                if (this._dataBufferFrameLength === -1) {
+                    if (this._dataBufferIndex >= 3) {
+                        this._dataBufferFrameLength =
+                            this._dataBuffer.readUIntBE(0, 3) +
+                            Frame.HeaderSize;
+                        if (this._dataBufferFrameLength - Frame.HeaderSize >
+                            this._serverSettings.getValue(
+                                SettingsParams.MaxFrameSize)) {
+                            throw new Http2Error("Frame size exceeds maximum",
+                                Http2ErrorType.FrameSizeError);
+                        }
+                    } else {
+                        return;
                     }
+                }
+
+                // If we have all of the bytes for a frame, remove them from the
+                // buffer and create a new frame
+                if (this._dataBufferIndex >= this._dataBufferFrameLength) {
+                    var frameBuffer: Buffer = new Buffer(
+                        this._dataBufferFrameLength);
+                    this._dataBuffer.copy(frameBuffer, 0, 0,
+                        frameBuffer.length);
+
+                    var frame: Frame = Frame.parse(frameBuffer);
+                    this.onFrame(frame);
+
+                    if (this._dataBufferIndex > this._dataBufferFrameLength) {
+                        var tempBuffer = new Buffer(this._dataBuffer.length);
+                        this._dataBuffer.copy(tempBuffer, 0,
+                            this._dataBufferFrameLength, this._dataBufferIndex);
+                        this._dataBuffer = tempBuffer;
+                        this._dataBufferIndex = this._dataBufferIndex -
+                            this._dataBufferFrameLength;
+                    } else {
+                        this._dataBufferIndex = 0;
+                    }
+                    this._dataBufferFrameLength = -1;
                 } else {
                     return;
                 }
-            }
-
-            // If we have all of the bytes for a frame, remove them from the
-            // buffer and create a new frame
-            if (this._dataBufferIndex >= this._dataBufferFrameLength) {
-                var frameBuffer: Buffer = new Buffer(
-                    this._dataBufferFrameLength);
-                this._dataBuffer.copy(frameBuffer, 0, 0, frameBuffer.length);
-
-                var frame: Frame = Frame.parse(frameBuffer);
-                this.onFrame(frame);
-
-                if (this._dataBufferIndex > this._dataBufferFrameLength) {
-                    this._dataBuffer.copy(this._dataBuffer, 0,
-                        this._dataBufferIndex,
-                        this._dataBufferIndex - this._dataBufferFrameLength);
-                    this._dataBufferIndex = this._dataBufferIndex -
-                        this._dataBufferFrameLength;
-                } else {
-                    this._dataBufferIndex = 0;
-                }
-                this._dataBufferFrameLength = -1;
             }
         } catch (error) {
             if (error instanceof Http2Error) {

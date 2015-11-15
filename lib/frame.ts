@@ -43,9 +43,9 @@ export abstract class Frame {
 
     static parse(frameData: Buffer): Frame {
         var type = frameData.readUIntBE(3, 1);
-        if (type == FrameType.Settings) {
+        if (type === FrameType.Settings) {
             return new SettingsFrame(frameData);
-        } else if (type == FrameType.GoAway) {
+        } else if (type === FrameType.GoAway) {
             return new GoAwayFrame(frameData);
         } else {
             return null;
@@ -55,6 +55,10 @@ export abstract class Frame {
 
     get type(): FrameType {
         return this._type;
+    }
+
+    get flags(): number {
+        return this._flags;
     }
 
     getBytes(): Buffer {
@@ -136,17 +140,17 @@ export class SettingsFrame extends Frame {
 
             this._parameters = [];
 
-            if (this._streamId != 0) {
+            if (this._streamId !== 0) {
                 throw new Http2Error("Invalid SETTINGS frame stream type",
                     Http2ErrorType.ProtocolError);
             }
 
-            if (this._length % 6 != 0) {
+            if (this._length % 6 !== 0) {
                 throw new Http2Error("Invalid SETTINGS frame size",
                     Http2ErrorType.FrameSizeError);
             }
 
-            if (this._flags & SettingsFlags.Ack && this._length != 0) {
+            if (this._flags & SettingsFlags.Ack && this._length !== 0) {
                 throw new Http2Error("Invalid SETTINGS frame size",
                     Http2ErrorType.FrameSizeError);
             }
@@ -155,17 +159,17 @@ export class SettingsFrame extends Frame {
             while (index < this._length) {
                 var parameter: number = frameData.readUIntBE(index, 2);
                 var value: number = frameData.readUIntBE(index + 2, 4);
-                if (parameter == SettingsParams.EnablePush) {
-                    if (value != 0 && value != 1) {
+                if (parameter === SettingsParams.EnablePush) {
+                    if (value !== 0 && value !== 1) {
                         throw new Http2Error("Invalid SETTINGS frame" +
                             " parameter value", Http2ErrorType.ProtocolError);
                     }
-                } else if (parameter == SettingsParams.InitialWindowSize) {
+                } else if (parameter === SettingsParams.InitialWindowSize) {
                     if (value > Math.pow(2, 31) - 1) {
                         throw new Http2Error("Invalid SETTINGS frame" +
                             " parameter value", Http2ErrorType.ProtocolError);
                     }
-                } else if (parameter == SettingsParams.MaxFrameSize) {
+                } else if (parameter === SettingsParams.MaxFrameSize) {
                     if (value > Math.pow(2, 24) - 1) {
                         throw new Http2Error("Invalid SETTINGS frame" +
                             " parameter value", Http2ErrorType.ProtocolError);
@@ -229,7 +233,7 @@ export class GoAwayFrame extends Frame {
         if (frameData !== undefined) {
             super(frameData);
 
-            if (this._streamId != 0) {
+            if (this._streamId !== 0) {
                 throw new Http2Error("Invalid GOAWAY frame stream type",
                     Http2ErrorType.ProtocolError);
             }
