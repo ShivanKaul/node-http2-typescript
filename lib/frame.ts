@@ -75,7 +75,7 @@ export const enum SettingsFlags {
     Ack = 0x1
 }
 
-export const enum SettingsParams {
+export const enum SettingsParam {
     /**
      * The maximum size of the header compression table used to decode header
      * blocks. The default value is 4096 octets.
@@ -105,7 +105,7 @@ export const enum SettingsParams {
 }
 
 export interface SettingsPair {
-    param: SettingsParams;
+    param: SettingsParam;
     value: number;
 }
 
@@ -113,22 +113,22 @@ export class SettingsFrame extends Frame {
     static FrameType = FrameType.Settings;
     static DefaultParametersLength = 36;
     static DefaultParameters = [{
-        param: SettingsParams.HeaderTableSize,
+        param: SettingsParam.HeaderTableSize,
         value: 4096
     }, {
-        param: SettingsParams.EnablePush,
+        param: SettingsParam.EnablePush,
         value: 1
     }, {
-        param: SettingsParams.MaxConcurrentStreams,
+        param: SettingsParam.MaxConcurrentStreams,
         value: null
     }, {
-        param: SettingsParams.InitialWindowSize,
+        param: SettingsParam.InitialWindowSize,
         value: 65535
     }, {
-        param: SettingsParams.MaxFrameSize,
+        param: SettingsParam.MaxFrameSize,
         value: 16384
     }, {
-        param: SettingsParams.MaxHeaderListSize,
+        param: SettingsParam.MaxHeaderListSize,
         value: 1024
     }];
 
@@ -159,17 +159,17 @@ export class SettingsFrame extends Frame {
             while (index < this._length) {
                 var parameter: number = frameData.readUIntBE(index, 2);
                 var value: number = frameData.readUIntBE(index + 2, 4);
-                if (parameter === SettingsParams.EnablePush) {
+                if (parameter === SettingsParam.EnablePush) {
                     if (value !== 0 && value !== 1) {
                         throw new Http2Error("Invalid SETTINGS frame" +
                             " parameter value", Http2ErrorType.ProtocolError);
                     }
-                } else if (parameter === SettingsParams.InitialWindowSize) {
+                } else if (parameter === SettingsParam.InitialWindowSize) {
                     if (value > Math.pow(2, 31) - 1) {
                         throw new Http2Error("Invalid SETTINGS frame" +
                             " parameter value", Http2ErrorType.ProtocolError);
                     }
-                } else if (parameter === SettingsParams.MaxFrameSize) {
+                } else if (parameter === SettingsParam.MaxFrameSize) {
                     if (value > Math.pow(2, 24) - 1) {
                         throw new Http2Error("Invalid SETTINGS frame" +
                             " parameter value", Http2ErrorType.ProtocolError);
@@ -192,7 +192,7 @@ export class SettingsFrame extends Frame {
         this._length = SettingsFrame.DefaultParametersLength;
     }
 
-    getValue(parameter: SettingsParams): number {
+    getValue(parameter: SettingsParam): number {
         for (var item of this._parameters) {
             if (item.param === parameter) {
                 return item.value;

@@ -3,7 +3,7 @@
 import {Socket} from "net";
 
 import {Http2ErrorType, Http2Error} from "./error"
-import {FrameType, Frame, SettingsFlags, SettingsParams, SettingsFrame,
+import {FrameType, Frame, SettingsFlags, SettingsParam, SettingsFrame,
     GoAwayFrame} from "./frame";
 import {Server} from "./server";
 import {StreamPair} from "./stream";
@@ -58,7 +58,7 @@ export class Connection {
         this._clientSettings = null;
 
         this._dataBuffer = new Buffer(this._serverSettings.getValue(
-            SettingsParams.MaxFrameSize));
+            SettingsParam.MaxFrameSize));
         this._dataBufferIndex = 0;
         this._dataBufferFrameLength = -1;
 
@@ -231,7 +231,7 @@ export class Connection {
                         // If frame size exceeds maximum, throw error
                         if (this._dataBufferFrameLength - Frame.HeaderSize >
                             this._serverSettings.getValue(
-                                SettingsParams.MaxFrameSize)) {
+                                SettingsParam.MaxFrameSize)) {
                             throw new Http2Error("Frame size exceeds maximum",
                                 Http2ErrorType.FrameSizeError);
                         }
