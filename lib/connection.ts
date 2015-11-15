@@ -47,7 +47,7 @@ export class Connection {
         this._errorOccurred = false;
     }
 
-    private getLastPeerInitiatedStreamId(): number {
+    private getLastClientInitiatedStreamId(): number {
         var maxOddId = 0;
         for (var item of this._streams) {
             if (item.streamId % 2 != 0 && item.streamId > maxOddId) {
@@ -57,17 +57,13 @@ export class Connection {
         return maxOddId;
     }
 
-    private sendConnectionPreface(): void {
-        this._socket.write(Connection.CONNECTION_PREFACE);
-    }
-
     private sendFrame(frame: Frame): void {
         this._socket.write(frame.getBytes());
     }
 
     private sendError(error: Http2Error): void {
         var frame = new GoAwayFrame(undefined,
-            this.getLastPeerInitiatedStreamId(), error.type);
+            this.getLastClientInitiatedStreamId(), error.type);
         this._socket.write(frame.getBytes());
         this._goAwayFrameSent = true;
         this._errorOccurred = true;
@@ -82,20 +78,28 @@ export class Connection {
                     Http2ErrorType.ProtocolError);
             }
 
-            if (!this._receivedSettingsFrame &&
-                frame.type !== FrameType.Settings) {
-                throw new Http2Error("SETTINGS frame not received after" +
-                    " preface", Http2ErrorType.ProtocolError);
-            } else {
-                this._clientSettings = <SettingsFrame>frame;
-                this.sendConnectionPreface();
-                this.sendFrame(this._serverSettings);
+            if (!this._receivedSettingsFrame) {
+                if (frame.type !== FrameType.Settings) {
+                    throw new Http2Error("SETTINGS frame not received after" +
+                        " preface", Http2ErrorType.ProtocolError);
+                } else {
+                    this._receivedSettingsFrame = true;
+                    this.sendFrame(this._serverSettings);
+                    this.onSettingsFrame(<SettingsFrame>frame);
+                }
             }
         } catch (error) {
             if (error instanceof Http2Error) {
                 this.sendError(error);
+            } else {
+                throw error;
             }
         }
+    }
+
+    private onSettingsFrame(frame: SettingsFrame): void {
+        this._clientSettings = frame;
+        this.sendFrame(new SettingsFrame(undefined, true));
     }
 
     private onData(data: Buffer): void {
@@ -144,8 +148,8 @@ export class Connection {
             if (this._dataBufferFrameLength == -1) {
                 if (this._dataBufferIndex >= 3) {
                     this._dataBufferFrameLength =
-                        this._dataBuffer.readUIntBE(0, 3);
-                    if (this._dataBufferFrameLength >
+                        this._dataBuffer.readUIntBE(0, 3) + Frame.HeaderSize;
+                    if (this._dataBufferFrameLength - Frame.HeaderSize >
                         this._serverSettings.getValue(
                             SettingsParams.MaxFrameSize)) {
                         throw new Http2Error("Frame size exceeds maximum",
@@ -180,6 +184,8 @@ export class Connection {
         } catch (error) {
             if (error instanceof Http2Error) {
                 this.sendError(error);
+            } else {
+                throw error;
             }
         }
     }

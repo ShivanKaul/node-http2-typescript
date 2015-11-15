@@ -45,7 +45,12 @@ export abstract class Frame {
         var type = frameData.readUIntBE(3, 1);
         if (type == FrameType.Settings) {
             return new SettingsFrame(frameData);
+        } else if (type == FrameType.GoAway) {
+            return new GoAwayFrame(frameData);
+        } else {
+            return null;
         }
+
     }
 
     get type(): FrameType {
@@ -102,7 +107,7 @@ export interface SettingsPair {
 
 export class SettingsFrame extends Frame {
     static FrameType = FrameType.Settings;
-    static DefaultParametersLength = 30;
+    static DefaultParametersLength = 36;
     static DefaultParameters = [{
         param: SettingsParams.HeaderTableSize,
         value: 4096
@@ -173,8 +178,8 @@ export class SettingsFrame extends Frame {
                 index += 6;
             }
         } else {
-            super(undefined, SettingsFrame.DefaultParametersLength,
-                SettingsFrame.FrameType, ack ? SettingsFlags.Ack : 0, 0);
+            super(undefined, 0, SettingsFrame.FrameType,
+                ack ? SettingsFlags.Ack : 0, 0);
         }
     }
 
@@ -206,6 +211,7 @@ export class SettingsFrame extends Frame {
             for (var item of this._parameters) {
                 buffer.writeUIntBE(item.param, index, 2);
                 buffer.writeUIntBE(item.value, index + 2, 4);
+                index += 6;
             }
         }
         return buffer;
