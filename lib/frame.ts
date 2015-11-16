@@ -43,7 +43,11 @@ export abstract class Frame {
 
     static parse(frameData: Buffer): Frame {
         var type = frameData.readUIntBE(3, 1);
-        if (type === FrameType.Settings) {
+        if (type === FrameType.Data) {
+            return new DataFrame(frameData);
+        } else if (type === FrameType.Headers) {
+            return new HeadersFrame(frameData);
+        } else if (type === FrameType.Settings) {
             return new SettingsFrame(frameData);
         } else if (type === FrameType.GoAway) {
             return new GoAwayFrame(frameData);
@@ -61,6 +65,10 @@ export abstract class Frame {
         return this._flags;
     }
 
+    get streamId(): number {
+        return this._streamId;
+    }
+
     getBytes(): Buffer {
         var buffer = new Buffer(this._length + Frame.HeaderSize);
         buffer.writeUIntBE(this._length, 0, 3);
@@ -69,6 +77,69 @@ export abstract class Frame {
         buffer.writeUIntBE(this._streamId & 0x7ffffff, 5, 4);
         return buffer;
     }
+}
+
+export const enum DataFlags {
+    EndStream = 0x1,
+    Padded = 0x8
+}
+
+export class DataFrame extends Frame {
+    static FrameType = FrameType.Data;
+
+    private _data: Buffer;
+
+    constructor(frameData?: Buffer, data?: Buffer, streamId?: number,
+                endStream?: boolean) {
+        if (frameData !== undefined) {
+            super(frameData);
+
+            if (this._streamId === 0) {
+                throw new Http2Error("Invalid DATA frame stream type",
+                    Http2ErrorType.ProtocolError);
+            }
+
+            if (this._flags & DataFlags.Padded) {
+                var paddingLength: number = frameData.readUIntBE(0, 1);
+                if (paddingLength === 0) {
+                    // A padding length of 0 corresponds to one octet for some
+                    // reason, according to the spec (section 6.1)
+                    paddingLength = 1;
+                }
+                if (paddingLength >= this._length) {
+                    throw new Http2Error("Invalid DATA frame padding size",
+                        Http2ErrorType.ProtocolError);
+                }
+
+                this._data = new Buffer(this._length - paddingLength);
+                frameData.copy(this._data, 0, Frame.HeaderSize + 1,
+                    this._length + Frame.HeaderSize - paddingLength);
+            } else {
+                this._data = new Buffer(this._length);
+                frameData.copy(this._data, 0, Frame.HeaderSize, this._length +
+                    Frame.HeaderSize);
+            }
+        } else {
+            super(undefined, data.length, DataFrame.FrameType,
+                endStream ? DataFlags.EndStream : 0, streamId);
+
+            this._data = data;
+        }
+    }
+
+    get data(): Buffer {
+        return this._data;
+    }
+
+    getBytes(): Buffer {
+        var buffer = super.getBytes();
+        this._data.copy(buffer, Frame.HeaderSize, 0, this._data.length);
+        return buffer;
+    }
+}
+
+export class HeadersFrame extends Frame {
+
 }
 
 export const enum SettingsFlags {
@@ -111,6 +182,7 @@ export interface SettingsPair {
 
 export class SettingsFrame extends Frame {
     static FrameType = FrameType.Settings;
+
     static DefaultParametersLength = 36;
     static DefaultParameters = [{
         param: SettingsParam.HeaderTableSize,

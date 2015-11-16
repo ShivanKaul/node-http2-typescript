@@ -1,3 +1,6 @@
+import {HeadersFrame} from "./frame";
+import {Frame} from "./frame";
+
 export enum StreamState {
     Idle,
     ReservedLocal,
@@ -9,7 +12,13 @@ export enum StreamState {
 }
 
 export class Stream {
+    constructor(frame: Frame) {
 
+    }
+
+    onFrame(frame: Frame): void {
+
+    }
 }
 
 export interface StreamPair {

@@ -6,7 +6,7 @@ import {Http2ErrorType, Http2Error} from "./error"
 import {FrameType, Frame, SettingsFlags, SettingsParam, SettingsFrame,
     GoAwayFrame} from "./frame";
 import {Server} from "./server";
-import {StreamPair} from "./stream";
+import {Stream, StreamPair} from "./stream";
 
 /**
  * Represents an HTTP/2 connection.
@@ -66,6 +66,16 @@ export class Connection {
         this._receivedSettingsFrame = false;
         this._goAwayFrameSent = false;
         this._errorOccurred = false;
+    }
+
+    private getStreamWithId(id: number): Stream {
+        for (var item of this._streams) {
+            if (item.streamId === id) {
+                return item.stream;
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -138,14 +148,39 @@ export class Connection {
                 }
             }
 
-            if (frame.type === FrameType.Settings) {
-                if (frame.flags & SettingsFlags.Ack) {
-                    // TODO: Send error using timeout if not acknowledged
-                    this._lastServerSettingsAcknowledged = true;
-                } else {
-                    this.onSettingsFrame(<SettingsFrame>frame);
+            if (frame.streamId === 0) {
+                if (frame.type === FrameType.Settings) {
+                    if (frame.flags & SettingsFlags.Ack) {
+                        // TODO: Send error using timeout if not acknowledged
+                        this._lastServerSettingsAcknowledged = true;
+                    } else {
+                        this.onSettingsFrame(<SettingsFrame>frame);
+                    }
+                    return;
                 }
-                return;
+            } else {
+                var stream: Stream = this.getStreamWithId(frame.streamId);
+
+                if (frame.type === FrameType.Data) {
+                    if (stream === null) {
+                        throw new Http2Error("DATA frame received for" +
+                            " non-existent stream",
+                            Http2ErrorType.StreamClosed);
+                    }
+                    stream.onFrame(frame);
+                    return;
+                }
+                if (frame.type === FrameType.Headers) {
+                    if (stream === null) {
+                        this._streams.push({
+                            stream: new Stream(frame),
+                            streamId: frame.streamId
+                        });
+                    } else {
+                        stream.onFrame(frame);
+                    }
+                    return;
+                }
             }
         } catch (error) {
             if (error instanceof Http2Error) {
