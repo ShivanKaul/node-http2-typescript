@@ -2,11 +2,12 @@
 
 import {Socket} from "net";
 
+import {Compression} from "./compression";
 import {Http2ErrorType, Http2Error} from "./error"
 import {FrameType, Frame, SettingsFlags, SettingsParam, SettingsFrame,
     GoAwayFrame} from "./frame";
 import {Server} from "./server";
-import {Stream, StreamPair} from "./stream";
+import {Stream, StreamEntry} from "./stream";
 
 /**
  * Represents an HTTP/2 connection.
@@ -22,11 +23,13 @@ export class Connection {
 
     private _socket: Socket;
 
-    private _streams: StreamPair[];
+    private _streams: StreamEntry[];
 
     private _serverSettings: SettingsFrame;
     private _lastServerSettingsAcknowledged: boolean;
     private _clientSettings: SettingsFrame;
+
+    private _compression: Compression;
 
     private _dataBuffer: Buffer;
     private _dataBufferIndex: number;
@@ -56,6 +59,9 @@ export class Connection {
         this._serverSettings.setDefaults();
         this._lastServerSettingsAcknowledged = false;
         this._clientSettings = null;
+
+        this._compression = new Compression(this._serverSettings.getValue(
+            SettingsParam.HeaderTableSize));
 
         this._dataBuffer = new Buffer(this._serverSettings.getValue(
             SettingsParam.MaxFrameSize));

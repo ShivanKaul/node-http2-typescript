@@ -21,7 +21,7 @@ export class Stream {
     }
 }
 
-export interface StreamPair {
+export interface StreamEntry {
     stream: Stream;
     streamId: number;
 }

@@ -138,8 +138,15 @@ export class DataFrame extends Frame {
     }
 }
 
-export class HeadersFrame extends Frame {
+export interface HeaderField {
+    name: string;
+    value: string;
+}
 
+export class HeadersFrame extends Frame {
+    private _dependencyStreamId: number;
+    private _weight: number;
+    private _headerFields: HeaderField[];
 }
 
 export const enum SettingsFlags {
@@ -175,7 +182,7 @@ export const enum SettingsParam {
     MaxHeaderListSize = 0x6
 }
 
-export interface SettingsPair {
+export interface SettingsEntry {
     param: SettingsParam;
     value: number;
 }
@@ -204,7 +211,7 @@ export class SettingsFrame extends Frame {
         value: 1024
     }];
 
-    private _parameters: SettingsPair[];
+    private _parameters: SettingsEntry[];
 
     constructor(frameData?: Buffer, ack?: boolean) {
         if (frameData !== undefined) {
@@ -326,4 +333,8 @@ export class GoAwayFrame extends Frame {
         buffer.writeUIntBE(this._errorCode, Frame.HeaderSize + 4, 4);
         return buffer;
     }
+}
+
+export class ContinuationFrame {
+
 }
