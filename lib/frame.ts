@@ -1,6 +1,7 @@
 /// <reference path="../vendor/node.d.ts" />
 
 import {Http2Error, Http2ErrorType} from "./error";
+import {Compression} from "./compression";
 
 export const enum FrameType {
     Data = 0x0,
@@ -41,12 +42,12 @@ export abstract class Frame {
         }
     }
 
-    static parse(frameData: Buffer): Frame {
-        var type = frameData.readUIntBE(3, 1);
+    static parse(compression: Compression, frameData: Buffer): Frame {
+        let type = frameData.readUIntBE(3, 1);
         if (type === FrameType.Data) {
             return new DataFrame(frameData);
         } else if (type === FrameType.Headers) {
-            return new HeadersFrame(frameData);
+            return new HeadersFrame(compression, frameData);
         } else if (type === FrameType.Settings) {
             return new SettingsFrame(frameData);
         } else if (type === FrameType.GoAway) {
@@ -70,7 +71,7 @@ export abstract class Frame {
     }
 
     getBytes(): Buffer {
-        var buffer = new Buffer(this._length + Frame.HeaderSize);
+        let buffer = new Buffer(this._length + Frame.HeaderSize);
         buffer.writeUIntBE(this._length, 0, 3);
         buffer.writeUIntBE(this._type, 3, 1);
         buffer.writeUIntBE(this._flags, 4, 1);
@@ -100,7 +101,8 @@ export class DataFrame extends Frame {
             }
 
             if (this._flags & DataFlags.Padded) {
-                var paddingLength: number = frameData.readUIntBE(0, 1);
+                let paddingLength: number = frameData.readUIntBE(
+                    Frame.HeaderSize, 1);
                 if (paddingLength === 0) {
                     // A padding length of 0 corresponds to one octet for some
                     // reason, according to the spec (section 6.1)
@@ -132,10 +134,17 @@ export class DataFrame extends Frame {
     }
 
     getBytes(): Buffer {
-        var buffer = super.getBytes();
+        let buffer = super.getBytes();
         this._data.copy(buffer, Frame.HeaderSize, 0, this._data.length);
         return buffer;
     }
+}
+
+export const enum HeadersFlags {
+    EndStream = 0x1,
+    EndHeaders = 0x4,
+    Padded = 0x8,
+    Priority = 0x20
 }
 
 export interface HeaderField {
@@ -144,9 +153,99 @@ export interface HeaderField {
 }
 
 export class HeadersFrame extends Frame {
+    static FrameType = FrameType.Headers;
+
+    private _compression: Compression;
+
+    private _dependencyExclusive: boolean;
     private _dependencyStreamId: number;
     private _weight: number;
     private _headerFields: HeaderField[];
+
+    constructor(compression: Compression, frameData?: Buffer,
+                headerFields?: HeaderField[], streamId?: number,
+                endStream?: boolean, endHeaders?: boolean, priority?: boolean,
+                dependencyExclusive?: boolean, dependencyStreamId?: number,
+                weight?: number) {
+        if (frameData !== undefined) {
+            super(frameData);
+
+            this._compression = compression;
+
+            if (this._streamId === 0) {
+                throw new Http2Error("Invalid HEADERS frame stream type",
+                    Http2ErrorType.ProtocolError);
+            }
+
+            var index = Frame.HeaderSize;
+
+            var paddingLength: number = 0;
+            if (this._flags & DataFlags.Padded) {
+                let paddingLength: number = frameData.readUIntBE(
+                    index, 1);
+                if (paddingLength >= this._length) {
+                    throw new Http2Error("Invalid HEADERS frame padding size",
+                        Http2ErrorType.ProtocolError);
+                }
+                index += 1;
+            }
+
+            if (this._flags & HeadersFlags.Priority) {
+                this._dependencyStreamId = frameData.readUIntBE(index, 4);
+                this._dependencyExclusive =
+                    Boolean(this._dependencyStreamId & 0x80000000);
+                this._dependencyStreamId =
+                    this._dependencyStreamId & 0x7ffffff;
+                this._weight = frameData.readUIntBE(index + 4, 1);
+                index += 5;
+            }
+
+            let block: Buffer;
+            if (this._flags & DataFlags.Padded) {
+                block = new Buffer(this._length - paddingLength);
+                frameData.copy(block, 0, index, index + block.length);
+            } else {
+                block = new Buffer(this._length);
+                frameData.copy(block, 0, index, index + block.length);
+                this._headerFields = compression.decodeHeaderBlock(block);
+            }
+            this._headerFields = compression.decodeHeaderBlock(block);
+        } else {
+            super(undefined, 0, HeadersFrame.FrameType,
+                (endStream ? HeadersFlags.EndStream : 0) |
+                (endHeaders ? HeadersFlags.EndHeaders : 0) |
+                (priority ? HeadersFlags.Priority : 0), streamId);
+
+            this._compression = compression;
+
+            this._dependencyExclusive = dependencyExclusive;
+            this._dependencyStreamId = dependencyStreamId;
+            this._weight = weight;
+            this._headerFields = headerFields;
+        }
+    }
+
+    getBytes(): Buffer {
+        let buffer: Buffer = super.getBytes();
+
+        let index: number = Frame.HeaderSize;
+        if (this._flags & HeadersFlags.Priority) {
+            buffer.writeUIntBE(Number(this._dependencyExclusive) << 31 |
+                this._dependencyStreamId, index, 4);
+            buffer.writeUIntBE(this._weight, index + 4, 1);
+            index += 5;
+        }
+
+        let block: Buffer = this._compression.encodeHeaderBlock(
+            this._headerFields);
+        block.copy(buffer, 0, index, index + block.length);
+
+        return buffer;
+    }
+
+    get headerFields(): HeaderField[] {
+        return this._headerFields;
+    }
 }
 
 export const enum SettingsFlags {
@@ -234,10 +333,10 @@ export class SettingsFrame extends Frame {
                     Http2ErrorType.FrameSizeError);
             }
 
-            var index: number = 9;
+            let index: number = 9;
             while (index < this._length) {
-                var parameter: number = frameData.readUIntBE(index, 2);
-                var value: number = frameData.readUIntBE(index + 2, 4);
+                let parameter: number = frameData.readUIntBE(index, 2);
+                let value: number = frameData.readUIntBE(index + 2, 4);
                 if (parameter === SettingsParam.EnablePush) {
                     if (value !== 0 && value !== 1) {
                         throw new Http2Error("Invalid SETTINGS frame" +
@@ -272,13 +371,13 @@ export class SettingsFrame extends Frame {
     }
 
     getValue(parameter: SettingsParam): number {
-        for (var item of this._parameters) {
+        for (let item of this._parameters) {
             if (item.param === parameter) {
                 return item.value;
             }
         }
 
-        for (var item of SettingsFrame.DefaultParameters) {
+        for (let item of SettingsFrame.DefaultParameters) {
             if (item.param === parameter) {
                 return item.value;
             }
@@ -288,10 +387,10 @@ export class SettingsFrame extends Frame {
     }
 
     getBytes(): Buffer {
-        var buffer = super.getBytes();
+        let buffer = super.getBytes();
         if (!(this._flags & SettingsFlags.Ack)) {
-            var index: number = Frame.HeaderSize;
-            for (var item of this._parameters) {
+            let index: number = Frame.HeaderSize;
+            for (let item of this._parameters) {
                 buffer.writeUIntBE(item.param, index, 2);
                 buffer.writeUIntBE(item.value, index + 2, 4);
                 index += 6;
@@ -328,13 +427,9 @@ export class GoAwayFrame extends Frame {
     }
 
     getBytes(): Buffer {
-        var buffer = super.getBytes();
+        let buffer = super.getBytes();
         buffer.writeUIntBE(this._lastStreamId & 0x7ffffff, Frame.HeaderSize, 4);
         buffer.writeUIntBE(this._errorCode, Frame.HeaderSize + 4, 4);
         return buffer;
     }
-}
-
-export class ContinuationFrame {
-
 }

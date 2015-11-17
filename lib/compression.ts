@@ -546,6 +546,11 @@ export class Compression {
         }
     }
 
+    encodeHeaderBlock(fields: HeaderField[]): Buffer {
+        // TODO: Implement header block encoding
+        return null;
+    }
+
     /**
      * Decodes the specified header block into a series of header fields.
      *

@@ -8,6 +8,7 @@ import {FrameType, Frame, SettingsFlags, SettingsParam, SettingsFrame,
     GoAwayFrame} from "./frame";
 import {Server} from "./server";
 import {Stream, StreamEntry} from "./stream";
+import {HeaderField} from "./frame";
 
 /**
  * Represents an HTTP/2 connection.
@@ -179,7 +180,7 @@ export class Connection {
                 if (frame.type === FrameType.Headers) {
                     if (stream === null) {
                         this._streams.push({
-                            stream: new Stream(frame),
+                            stream: new Stream(this._server, frame),
                             streamId: frame.streamId
                         });
                     } else {
@@ -289,7 +290,8 @@ export class Connection {
                     this._dataBuffer.copy(frameBuffer, 0, 0,
                         frameBuffer.length);
 
-                    var frame: Frame = Frame.parse(frameBuffer);
+                    var frame: Frame = Frame.parse(this._compression,
+                        frameBuffer);
                     this.onFrame(frame);
 
                     // If there are still bytes left in the buffer, move those

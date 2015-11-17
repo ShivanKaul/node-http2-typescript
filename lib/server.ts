@@ -2,6 +2,8 @@
 
 import * as net from "net";
 import {Connection} from "./connection";
+import {HeaderField} from "./frame";
+import {Stream} from "./stream";
 
 interface ServerConfig {
     port?: number;
@@ -24,5 +26,9 @@ export class Server {
             this._port = 80;
         }
         this._server.listen(this._port);
+    }
+
+    onRequest(stream: Stream, headerFields: HeaderField[]): void {
+
     }
 }
