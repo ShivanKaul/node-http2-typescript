@@ -177,9 +177,9 @@ export class HeadersFrame extends Frame {
                     Http2ErrorType.ProtocolError);
             }
 
-            var index = Frame.HeaderSize;
+            let index = Frame.HeaderSize;
 
-            var paddingLength: number = 0;
+            let paddingLength: number = 0;
             if (this._flags & DataFlags.Padded) {
                 let paddingLength: number = frameData.readUIntBE(
                     index, 1);

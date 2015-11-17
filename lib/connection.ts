@@ -52,7 +52,7 @@ export class Connection {
         this._server = server;
 
         this._socket = socket;
-        this._socket.on("data", (data) => this.onData(data));
+        this._socket.on("data", (data) => this.handleTcpData(data));
 
         this._streams = [];
 
@@ -75,8 +75,43 @@ export class Connection {
         this._errorOccurred = false;
     }
 
+    get compression(): Compression {
+        return this._compression;
+    }
+
+    /**
+     * Sends a frame to the server.
+     *
+     * @param frame The frame to send to the server.
+     */
+    sendFrame(frame: Frame): void {
+        this._socket.write(frame.getBytes());
+    }
+
+    /**
+     * Sends a GOAWAY frame to the server when an error occurs.
+     *
+     * @param error The error that occurred.
+     */
+    sendError(error: Http2Error): void {
+        let frame = new GoAwayFrame(undefined,
+            this.getLastClientInitiatedStreamId(), error.type);
+        this._socket.write(frame.getBytes());
+        this._goAwayFrameSent = true;
+        this._errorOccurred = true;
+
+        this._socket.end();
+    }
+
+    /**
+     * Gets the stream with the specified ID.
+     *
+     * @param id The specified ID.
+     *
+     * @returns {Stream} The stream with the specified ID.
+     */
     private getStreamWithId(id: number): Stream {
-        for (var item of this._streams) {
+        for (let item of this._streams) {
             if (item.streamId === id) {
                 return item.stream;
             }
@@ -92,8 +127,8 @@ export class Connection {
      * @returns {number} The most recent client-initiated stream ID.
      */
     private getLastClientInitiatedStreamId(): number {
-        var maxOddId = 0;
-        for (var item of this._streams) {
+        let maxOddId = 0;
+        for (let item of this._streams) {
             if (item.streamId % 2 !== 0 && item.streamId > maxOddId) {
                 maxOddId = item.streamId;
             }
@@ -102,36 +137,12 @@ export class Connection {
     }
 
     /**
-     * Sends a frame to the server.
-     *
-     * @param frame The frame to send to the server.
-     */
-    private sendFrame(frame: Frame): void {
-        this._socket.write(frame.getBytes());
-    }
-
-    /**
-     * Sends a GOAWAY frame to the server when an error occurs.
-     *
-     * @param error The error that occurred.
-     */
-    private sendError(error: Http2Error): void {
-        var frame = new GoAwayFrame(undefined,
-            this.getLastClientInitiatedStreamId(), error.type);
-        this._socket.write(frame.getBytes());
-        this._goAwayFrameSent = true;
-        this._errorOccurred = true;
-
-        this._socket.end();
-    }
-
-    /**
      * Called when a frame has been received from the server. Processes the
      * frames by calling the appropriate method.
      *
      * @param frame The frame received from the server.
      */
-    private onFrame(frame: Frame): void {
+    private handleFrame(frame: Frame): void {
         try {
             if (frame === null) {
                 // Discard unrecognized frames
@@ -150,7 +161,7 @@ export class Connection {
                 } else {
                     this._receivedSettingsFrame = true;
                     this.sendFrame(this._serverSettings);
-                    this.onSettingsFrame(<SettingsFrame>frame);
+                    this.handleSettingsFrame(<SettingsFrame>frame);
                     return;
                 }
             }
@@ -161,12 +172,12 @@ export class Connection {
                         // TODO: Send error using timeout if not acknowledged
                         this._lastServerSettingsAcknowledged = true;
                     } else {
-                        this.onSettingsFrame(<SettingsFrame>frame);
+                        this.handleSettingsFrame(<SettingsFrame>frame);
                     }
                     return;
                 }
             } else {
-                var stream: Stream = this.getStreamWithId(frame.streamId);
+                let stream: Stream = this.getStreamWithId(frame.streamId);
 
                 if (frame.type === FrameType.Data) {
                     if (stream === null) {
@@ -174,17 +185,18 @@ export class Connection {
                             " non-existent stream",
                             Http2ErrorType.StreamClosed);
                     }
-                    stream.onFrame(frame);
+                    stream.handleFrame(frame);
                     return;
                 }
                 if (frame.type === FrameType.Headers) {
                     if (stream === null) {
                         this._streams.push({
-                            stream: new Stream(this._server, frame),
+                            stream: new Stream(this._server, this, frame,
+                                frame.streamId),
                             streamId: frame.streamId
                         });
                     } else {
-                        stream.onFrame(frame);
+                        stream.handleFrame(frame);
                     }
                     return;
                 }
@@ -205,7 +217,7 @@ export class Connection {
      *
      * @param frame The SETTINGS frame received from the client.
      */
-    private onSettingsFrame(frame: SettingsFrame): void {
+    private handleSettingsFrame(frame: SettingsFrame): void {
         this._clientSettings = frame;
         this.sendFrame(new SettingsFrame(undefined, true));
     }
@@ -216,12 +228,12 @@ export class Connection {
      *
      * @param data The data received from the client.
      */
-    private onData(data: Buffer): void {
+    private handleTcpData(data: Buffer): void {
         try {
             // If data buffer too small to hold incoming data, allocate a larger
             // buffer
             if (data.length > this._dataBuffer.length - this._dataBufferIndex) {
-                var tempBuffer: Buffer = this._dataBuffer;
+                let tempBuffer: Buffer = this._dataBuffer;
                 this._dataBuffer = new Buffer(tempBuffer.length + data.length);
                 tempBuffer.copy(this._dataBuffer, 0, 0, tempBuffer.length);
             }
@@ -235,7 +247,7 @@ export class Connection {
             if (!this._receivedPreface) {
                 if (this._dataBufferIndex >=
                     Connection.CONNECTION_PREFACE.length) {
-                    var receivedData = this._dataBuffer.toString("utf-8", 0,
+                    let receivedData = this._dataBuffer.toString("utf-8", 0,
                         Connection.CONNECTION_PREFACE.length);
                     // If connection preface has been received, remove from
                     // data buffer and flag it as having been received
@@ -285,19 +297,19 @@ export class Connection {
                 // If we have all of the bytes for a frame, remove them from the
                 // buffer and create a new frame
                 if (this._dataBufferIndex >= this._dataBufferFrameLength) {
-                    var frameBuffer: Buffer = new Buffer(
+                    let frameBuffer: Buffer = new Buffer(
                         this._dataBufferFrameLength);
                     this._dataBuffer.copy(frameBuffer, 0, 0,
                         frameBuffer.length);
 
-                    var frame: Frame = Frame.parse(this._compression,
+                    let frame: Frame = Frame.parse(this._compression,
                         frameBuffer);
-                    this.onFrame(frame);
+                    this.handleFrame(frame);
 
                     // If there are still bytes left in the buffer, move those
                     // bytes to the beginning of the buffer
                     if (this._dataBufferIndex > this._dataBufferFrameLength) {
-                        var tempBuffer = new Buffer(this._dataBuffer.length);
+                        let tempBuffer = new Buffer(this._dataBuffer.length);
                         this._dataBuffer.copy(tempBuffer, 0,
                             this._dataBufferFrameLength, this._dataBufferIndex);
                         this._dataBuffer = tempBuffer;
