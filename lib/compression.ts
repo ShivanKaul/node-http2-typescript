@@ -654,9 +654,9 @@ export class Compression {
         let blockIndex: number = 0;
         for (let field of fields) {
             let tableIndex: number = this.getIndexForHeaderField(field);
-            if (tableIndex === null) {
+            if (tableIndex !== null) {
                 let tableIndexHeader: HeaderField =
-                    this.getHeaderFieldForIndex(blockIndex);
+                    this.getHeaderFieldForIndex(tableIndex);
                 if (tableIndexHeader.value !== "") {
                     // Indexed header field
                     blockIndex = Compression.encodeInteger(block, blockIndex,
