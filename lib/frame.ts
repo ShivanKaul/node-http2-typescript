@@ -226,6 +226,10 @@ export class HeadersFrame extends Frame {
     }
 
     getBytes(): Buffer {
+        let block: Buffer = this._compression.encodeHeaderBlock(
+            this._headerFields);
+        this._length = block.length;
+
         let buffer: Buffer = super.getBytes();
 
         let index: number = Frame.HeaderSize;
@@ -236,9 +240,7 @@ export class HeadersFrame extends Frame {
             index += 5;
         }
 
-        let block: Buffer = this._compression.encodeHeaderBlock(
-            this._headerFields);
-        block.copy(buffer, 0, index, index + block.length);
+        block.copy(buffer, index, 0, block.length);
 
         return buffer;
     }

@@ -365,7 +365,7 @@ export class Compression {
         "1111111111101": "~",
         "111111111111111111111111111111": "EOS"
     };
-    private static DefaultHeaderSize: number = 1024;
+    private static MaxHeaderSize: number = 1024;
 
     private _dynamicTable: HeaderField[];
     private _maxDynamicTableSize: number;
@@ -650,7 +650,7 @@ export class Compression {
      * @returns {Buffer} The header block containing the header fields.
      */
     encodeHeaderBlock(fields: HeaderField[]): Buffer {
-        let block: Buffer = new Buffer(Compression.DefaultHeaderSize);
+        let block: Buffer = new Buffer(Compression.MaxHeaderSize);
         let blockIndex: number = 0;
         for (let field of fields) {
             let tableIndex: number = this.getIndexForHeaderField(field);
@@ -678,6 +678,9 @@ export class Compression {
                     field.value);
             }
         }
-        return block;
+
+        let returnBlock: Buffer = new Buffer(blockIndex);
+        block.copy(returnBlock, 0, 0, blockIndex);
+        return returnBlock;
     }
 }

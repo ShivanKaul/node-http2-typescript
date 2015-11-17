@@ -57,6 +57,7 @@ export class Server {
         for (let field of headerFields) {
             if (field.name === ":method") {
                 methodField = field;
+                break;
             }
         }
 
@@ -64,6 +65,7 @@ export class Server {
         for (let field of headerFields) {
             if (field.name === ":path") {
                 pathField = field;
+                break;
             }
         }
 
