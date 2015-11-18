@@ -5,22 +5,13 @@
 # IntelliJ IDEA
 .idea/workspace.xml
 .idea/tasks.xml
+.idea/dictionaries
 
 # NPM
 node_modules
 
 # Used to generate .npmignore
 .gitattributes
-
-############
-## Windows
-############
-
-# Windows image file caches
-Thumbs.db
-
-# Folder config file
-Desktop.ini
 
 #############
 ## Windows and OS X
