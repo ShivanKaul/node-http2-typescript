@@ -219,6 +219,8 @@ export class Connection {
      */
     private handleSettingsFrame(frame: SettingsFrame): void {
         this._clientSettings = frame;
+        this._compression.maxDynamicTableSizeLimit =
+            this._clientSettings.getValue(SettingsParam.HeaderTableSize);
         this.sendFrame(new SettingsFrame(undefined, true));
     }
 

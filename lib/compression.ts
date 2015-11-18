@@ -1,19 +1,67 @@
+/// <reference path="../vendor/node.d.ts" />
+
 import {Http2ErrorType, Http2Error} from "./error";
 import {HeaderField} from "./frame";
 
+/**
+ * Represents a decoded integer.
+ */
 interface DecodedInteger {
+    /**
+     * The decoded integer.
+     */
     num: number;
+    /**
+     * The new index within the buffer (located immediately after the encoded
+     * integer).
+     */
     index: number;
 }
 
+/**
+ * Represents a decoded string.
+ */
 interface DecodedString {
+    /**
+     * The decoded string.
+     */
     str: string;
+    /**
+     * The new index within the buffer (located immediately after the encoded
+     * string).
+     */
     index: number;
 }
 
+/**
+ * Represents a decoded header field.
+ */
 interface DecodedHeaderField {
+    /**
+     * The decoded header field.
+     */
     field: HeaderField;
+    /**
+     * The new index within the buffer (located immediately after the encoded
+     * header field).
+     */
     index: number;
+}
+
+/**
+ * Return type for encode methods.
+ */
+interface EncodedValue {
+    /**
+     * The new index within the buffer (located immediately after the encoded
+     * value).
+     */
+    index: number;
+    /**
+     * The specified buffer (or a newly allocated one if there wasn't enough
+     * room).
+     */
+    buffer: Buffer;
 }
 
 /**
@@ -21,6 +69,9 @@ interface DecodedHeaderField {
  * stores the current compression state for a connection.
  */
 export class Compression {
+    /**
+     * The HPACK static table.
+     */
     private static StaticTable: HeaderField[] = [
         {
             name: ":authority",
@@ -267,6 +318,11 @@ export class Compression {
             value: ""
         }
     ];
+
+    /**
+     * The HPACK Huffman encoding table.
+     **/
+    // TODO: Add support for all bytes, not just a subset
     private static HuffmanTable: Object = {
         "010100": " ",
         "1111111000": "!",
@@ -365,16 +421,188 @@ export class Compression {
         "1111111111101": "~",
         "111111111111111111111111111111": "EOS"
     };
-    private static MaxHeaderSize: number = 1024;
 
+    /**
+     * The default size, in bytes, of the buffer containing the encoded header.
+     * This is not a maximum; a new buffer with a larger size will be
+     * allocated if necessary during the encoding process.
+     */
+    private static DefaultHeaderSize: number = 1024;
+
+    /**
+     * The HPACK dynamic table.
+     */
     private _dynamicTable: HeaderField[];
-    private _maxDynamicTableSize: number;
+
+    /**
+     * The limit on the maximum dynamic table size (as determined by HTTP/2
+     * SETTINGS frames).
+     */
     private _maxDynamicTableSizeLimit: number;
 
+    /**
+     * The maximum dynamic table size (as determined by dynamic table size
+     * updates in the compressed header blocks).
+     */
+    private _maxDynamicTableSize: number;
+
+    /**
+     * The table of headers that should never be indexed.
+     */
+    private _neverIndexTable: HeaderField[];
+
+    /**
+     * Initializes a new instance of the Compression class.
+     *
+     * @param maxDynamicTableSizeLimit The limit of the maximum size, in bytes,
+     *                                 of the dynamic table.
+     */
     constructor(maxDynamicTableSizeLimit: number) {
         this._dynamicTable = [];
         this._maxDynamicTableSize = maxDynamicTableSizeLimit;
         this._maxDynamicTableSizeLimit = maxDynamicTableSizeLimit;
+        this._neverIndexTable = [];
+    }
+
+    /**
+     * Writes the specified number as an unsigned integer to the specified
+     * buffer in big-endian format at the specified offset using the specified
+     * number of bytes (precision).
+     *
+     * If the buffer is not large enough to fit the number, a new buffer is
+     * allocated and returned.
+     *
+     * @param buffer The specified buffer.
+     * @param num    The specified number to write.
+     * @param start  The specified offset at which to start writing.
+     * @param length The number of bytes to write.
+     *
+     * @returns {Buffer}
+     */
+    private static bufferWriteUIntBE(buffer: Buffer, num: number,
+                                     start: number, length: number): Buffer {
+        if (buffer.length < start + length) {
+            // Allocate new buffer, then write data
+            let newBuffer: Buffer = new Buffer(buffer.length +
+                Compression.DefaultHeaderSize);
+            buffer.copy(newBuffer, 0, 0, buffer.length);
+            newBuffer.writeUIntBE(num, start, length);
+            return newBuffer;
+        } else {
+            // Just write data
+            buffer.writeUIntBE(num, start, length);
+            return buffer;
+        }
+    }
+
+    /**
+     *
+     * @param sourceBuffer
+     * @param targetBuffer
+     * @param targetOffset
+     * @param sourceIndex
+     * @param sourceLength
+     * @returns {Buffer}
+     */
+    private static bufferCopy(sourceBuffer: Buffer, targetBuffer: Buffer,
+                              targetOffset: number, sourceIndex: number,
+                              sourceLength: number): Buffer {
+        if (targetBuffer.length < targetOffset + sourceLength) {
+            // Allocate new buffer, then write data
+            let newBuffer: Buffer = new Buffer(targetBuffer.length +
+                Compression.DefaultHeaderSize);
+            targetBuffer.copy(newBuffer, 0, 0, targetBuffer.length);
+            sourceBuffer.copy(newBuffer, targetOffset, sourceIndex,
+                sourceLength);
+            return newBuffer;
+        } else {
+            // Just write data
+            sourceBuffer.copy(targetBuffer, targetOffset, sourceIndex,
+                sourceLength);
+            return targetBuffer;
+        }
+    }
+
+    /**
+     * Gets the size of the dynamic table in bytes.
+     *
+     * @returns {number} The size of the dynamic table in bytes.
+     */
+    private getSizeOfDynamicTable(): number {
+        let length: number = 0;
+        for (let item of this._dynamicTable) {
+            length += Buffer.byteLength(item.name);
+            length += Buffer.byteLength(item.value);
+            // Required by the HTTP/2 specification (estimate for overhead)
+            length += 32;
+        }
+        return length;
+    }
+
+    /**
+     * Re-sizes the dynamic table to conform to the maximum table size by
+     * removing older entries.
+     */
+    private resizeDynamicTable(): void {
+        if (this._maxDynamicTableSize > this._maxDynamicTableSizeLimit) {
+            this._maxDynamicTableSize = this._maxDynamicTableSizeLimit;
+        }
+
+        let size = this.getSizeOfDynamicTable();
+        while (size > this._maxDynamicTableSize) {
+            this._dynamicTable.pop();
+            size -= 1;
+        }
+    }
+
+    /**
+     * Adds the specified header field to the dynamic table.
+     *
+     * @param field The header field.
+     */
+    private addHeaderFieldToDynamicTable(field: HeaderField): void {
+        this._dynamicTable.splice(0, 0, field);
+        this.resizeDynamicTable();
+    }
+
+    /**
+     * Gets the header field at the specified table index. Throws an exception
+     * if no field is located at that index.
+     *
+     * @param index The specified table index.
+     *
+     * @returns {HeaderField} The field at the specified index.
+     */
+    private getHeaderFieldForIndex(index: number): HeaderField {
+        if (index >= 1 && index <= Compression.StaticTable.length) {
+            index = index - 1;
+            return Compression.StaticTable[index];
+        } else if (index >= Compression.StaticTable.length + 1 &&
+            index <= Compression.StaticTable.length +
+            this._dynamicTable.length) {
+            index = index - Compression.StaticTable.length - 1;
+            return this._dynamicTable[index];
+        } else {
+            throw new Http2Error("Invalid compression index",
+                Http2ErrorType.CompressionError)
+        }
+    }
+
+    private getIndexForHeaderField(field: HeaderField) {
+        for (let i: number = 0; i < Compression.StaticTable.length; i++) {
+            if (field.name === Compression.StaticTable[i].name &&
+                (field.value === Compression.StaticTable[i].value ||
+                Compression.StaticTable[i].value === "")) {
+                return i + 1;
+            }
+        }
+        for (let i: number = 0; i < this._dynamicTable.length; i++) {
+            if (field.name === this._dynamicTable[i].name &&
+                field.value === this._dynamicTable[i].value) {
+                return i + 1 + Compression.StaticTable.length;
+            }
+        }
+        return null;
     }
 
     private static decodeInteger(block: Buffer, blockIndex: number,
@@ -413,27 +641,33 @@ export class Compression {
 
     private static encodeInteger(block: Buffer, blockIndex: number,
                                  integerValue: number, prefix: number,
-                                 prefixValue: number): number {
+                                 prefixValue: number): EncodedValue {
         if (integerValue < Math.pow(2, prefix) - 1) {
             let prefixByte: number = prefixValue;
             prefixByte += integerValue;
-            block.writeUIntBE(prefixByte, blockIndex, 1);
-            return blockIndex + 1;
+            block = Compression.bufferWriteUIntBE(block, prefixByte,
+                blockIndex, 1);
         } else {
             let prefixByte: number = prefixValue;
             prefixByte += Math.pow(2, prefix) - 1;
-            block.writeUIntBE(prefixByte, blockIndex, 1);
+            block = Compression.bufferWriteUIntBE(block, prefixByte,
+                blockIndex, 1);
             blockIndex += 1;
 
             integerValue -= Math.pow(2, prefix) - 1;
             while (integerValue >= 128) {
-                block.writeUIntBE(integerValue % 128 + 128, blockIndex, 1);
+                block = Compression.bufferWriteUIntBE(block,
+                    integerValue % 128 + 128, blockIndex, 1);
                 blockIndex += 1;
                 integerValue = integerValue / 128;
             }
-            block.writeUIntBE(integerValue, blockIndex, 1);
-            return blockIndex + 1;
+            block = Compression.bufferWriteUIntBE(block, integerValue,
+                blockIndex, 1);
         }
+        return <EncodedValue>{
+            index: blockIndex + 1,
+            buffer: block
+        };
     }
 
     private static decodeString(block: Buffer,
@@ -442,9 +676,9 @@ export class Compression {
 
         let huffman: boolean = Boolean(initialByte & 0x80);
 
-        let lengthObj = Compression.decodeInteger(block, blockIndex, 7);
-        let strLength: number = lengthObj.num;
-        blockIndex = lengthObj.index;
+        let decodedInteger = Compression.decodeInteger(block, blockIndex, 7);
+        let strLength: number = decodedInteger.num;
+        blockIndex = decodedInteger.index;
 
         let str: string = "";
         if (huffman) {
@@ -497,73 +731,21 @@ export class Compression {
     }
 
     private static encodeString(block: Buffer, blockIndex: number,
-                                str: string): number {
-        blockIndex = this.encodeInteger(block, blockIndex,
-            Buffer.byteLength(str), 7, 0);
+                                str: string): EncodedValue {
+        let encodedInteger: EncodedValue = this.encodeInteger(block,
+            blockIndex, Buffer.byteLength(str), 7, 0);
+        blockIndex = encodedInteger.index;
+        block = encodedInteger.buffer;
 
+        // TODO: Add support for Huffman encoding
         let buffer: Buffer = new Buffer(str);
-        buffer.copy(block, blockIndex, 0, buffer.length);
+        block = Compression.bufferCopy(buffer, block, blockIndex, 0,
+            buffer.length);
 
-        return blockIndex + buffer.length;
-    }
-
-    private getSizeOfDynamicTable(): number {
-        let length: number = 0;
-        for (let item of this._dynamicTable) {
-            length += Buffer.byteLength(item.name);
-            length += Buffer.byteLength(item.value);
-            length += 32;
-        }
-        return length;
-    }
-
-    /**
-     * Re-sizes the dynamic table to conform to the maximum table size by
-     * removing older entries.
-     */
-    private resizeDynamicTable(): void {
-        let size = this.getSizeOfDynamicTable();
-        while (size > this._maxDynamicTableSize) {
-            this._dynamicTable.pop();
-            size -= 1;
-        }
-    }
-
-    private addHeaderFieldToDynamicTable(field: HeaderField): void {
-        this._dynamicTable.splice(0, 0, field);
-        this.resizeDynamicTable();
-    }
-
-    private getHeaderFieldForIndex(index: number): HeaderField {
-        if (index >= 1 && index <= Compression.StaticTable.length) {
-            index = index - 1;
-            return Compression.StaticTable[index];
-        } else if (index >= Compression.StaticTable.length + 1 &&
-            index <= Compression.StaticTable.length +
-            this._dynamicTable.length) {
-            index = index - Compression.StaticTable.length - 1;
-            return this._dynamicTable[index];
-        } else {
-            throw new Http2Error("Invalid compression index",
-                Http2ErrorType.CompressionError)
-        }
-    }
-
-    private getIndexForHeaderField(field: HeaderField) {
-        for (let i: number = 0; i < Compression.StaticTable.length; i++) {
-            if (field.name === Compression.StaticTable[i].name &&
-                (field.value === Compression.StaticTable[i].value ||
-                Compression.StaticTable[i].value === "")) {
-                return i + 1;
-            }
-        }
-        for (let i: number = 0; i < this._dynamicTable.length; i++) {
-            if (field.name === this._dynamicTable[i].name &&
-                field.value === this._dynamicTable[i].value) {
-                return i + 1 + Compression.StaticTable.length;
-            }
-        }
-        return null;
+        return <EncodedValue>{
+            index: blockIndex + buffer.length,
+            buffer: block
+        };
     }
 
     private decodeHeaderField(block: Buffer, blockIndex: number,
@@ -572,22 +754,22 @@ export class Compression {
         if (newName) {
             // New name
             blockIndex += 1;
-            let nameObj: DecodedString =
+            let decodedString: DecodedString =
                 Compression.decodeString(block, blockIndex);
-            name = nameObj.str;
-            blockIndex = nameObj.index;
+            name = decodedString.str;
+            blockIndex = decodedString.index;
         } else {
             // Indexed name
-            let indexObj: DecodedInteger =
+            let decodedInteger: DecodedInteger =
                 Compression.decodeInteger(block, blockIndex, 6);
-            name = this.getHeaderFieldForIndex(indexObj.num).name;
-            blockIndex = indexObj.index;
+            name = this.getHeaderFieldForIndex(decodedInteger.num).name;
+            blockIndex = decodedInteger.index;
         }
 
-        let valueObj: DecodedString =
+        let decodedString: DecodedString =
             Compression.decodeString(block, blockIndex);
-        let value: string = valueObj.str;
-        blockIndex = valueObj.index;
+        let value: string = decodedString.str;
+        blockIndex = decodedString.index;
 
         let headerField = <HeaderField>{
             name: name,
@@ -614,28 +796,40 @@ export class Compression {
             let firstByte = block.readUIntBE(blockIndex, 1);
             if (firstByte & 0x80) {
                 // Indexed header field
-                let indexObj: DecodedInteger =
+                let decodedInteger: DecodedInteger =
                     Compression.decodeInteger(block, blockIndex, 7);
-                fields.push(this.getHeaderFieldForIndex(indexObj.num));
-                blockIndex = indexObj.index;
+                fields.push(this.getHeaderFieldForIndex(decodedInteger.num));
+                blockIndex = decodedInteger.index;
+            } else if (firstByte & 0x40) {
+                // Literal header field with incremental indexing
+                let newName: boolean = (firstByte & 0x3f) === 0;
+                let decodedField: DecodedHeaderField =
+                    this.decodeHeaderField(block, blockIndex, newName);
+                fields.push(decodedField.field);
+                blockIndex = decodedField.index;
+                this.addHeaderFieldToDynamicTable(decodedField.field);
+            } else if (firstByte & 0x20) {
+                // Dynamic header table update
+                let decodedInteger: DecodedInteger =
+                    Compression.decodeInteger(block, blockIndex, 5);
+                if (decodedInteger.num > this._maxDynamicTableSizeLimit) {
+                    throw new Http2Error("Dynamic table size update value" +
+                        " exceeds SETTINGS frame limit",
+                        Http2ErrorType.CompressionError)
+                }
+                this._maxDynamicTableSize = decodedInteger.num;
+                this.resizeDynamicTable();
+                blockIndex = decodedInteger.index;
             } else {
-                // Literal header field
-                if (firstByte & 0x40) {
-                    // Incremental indexing
-                    let newName: boolean = (firstByte & 0x3f) === 0;
-                    let fieldObj: DecodedHeaderField =
-                        this.decodeHeaderField(block, blockIndex, newName);
-                    fields.push(fieldObj.field);
-                    blockIndex = fieldObj.index;
-                    this.addHeaderFieldToDynamicTable(fieldObj.field);
-                } else {
-                    // No indexing or never indexed (irrelevant, as this
-                    // implementation does not use outgoing header compression)
-                    let newName: boolean = (firstByte & 0x0f) === 0;
-                    let fieldObj: DecodedHeaderField =
-                        this.decodeHeaderField(block, blockIndex, newName);
-                    fields.push(fieldObj.field);
-                    blockIndex = fieldObj.index;
+                // Literal header field with no indexing or never index
+                let newName: boolean = (firstByte & 0x0f) === 0;
+                let decodedField: DecodedHeaderField =
+                    this.decodeHeaderField(block, blockIndex, newName);
+                fields.push(decodedField.field);
+                blockIndex = decodedField.index;
+                if (firstByte & 0x10) {
+                    // Never index
+                    this._neverIndexTable.push(decodedField.field);
                 }
             }
         }
@@ -650,37 +844,69 @@ export class Compression {
      * @returns {Buffer} The header block containing the header fields.
      */
     encodeHeaderBlock(fields: HeaderField[]): Buffer {
-        let block: Buffer = new Buffer(Compression.MaxHeaderSize);
+        let block: Buffer = new Buffer(Compression.DefaultHeaderSize);
         let blockIndex: number = 0;
         for (let field of fields) {
             let tableIndex: number = this.getIndexForHeaderField(field);
+            let tableIndexHeader: HeaderField;
+
             if (tableIndex !== null) {
-                let tableIndexHeader: HeaderField =
-                    this.getHeaderFieldForIndex(tableIndex);
+                tableIndexHeader = this.getHeaderFieldForIndex(tableIndex);
+                for (let neverIndexField of this._neverIndexTable) {
+                    if (neverIndexField.name === tableIndexHeader.name &&
+                        neverIndexField.value === tableIndexHeader.value) {
+                        tableIndexHeader = null;
+                        break;
+                    }
+                }
+            }
+
+            if (tableIndex !== null && tableIndexHeader !== null) {
                 if (tableIndexHeader.value !== "") {
                     // Indexed header field
-                    blockIndex = Compression.encodeInteger(block, blockIndex,
-                        tableIndex, 7, 0x80);
+                    let encodedInteger: EncodedValue =
+                        Compression.encodeInteger(block, blockIndex,
+                            tableIndex, 7, 0x80);
+                    blockIndex = encodedInteger.index;
+                    block = encodedInteger.buffer;
                 } else {
                     // Literal header field with indexed name
-                    blockIndex = Compression.encodeInteger(block, blockIndex,
-                        tableIndex, 6, 0x40);
-                    blockIndex = Compression.encodeString(block, blockIndex,
-                        field.value);
+                    let encodedInteger: EncodedValue =
+                        Compression.encodeInteger(block, blockIndex,
+                            tableIndex, 6, 0x40);
+                    blockIndex = encodedInteger.index;
+                    block = encodedInteger.buffer;
+                    let encodedString: EncodedValue =
+                        Compression.encodeString(block, blockIndex,
+                            field.value);
+                    blockIndex = encodedString.index;
+                    block = encodedString.buffer;
                 }
             } else {
                 // Literal header field with new name
-                block.writeUIntBE(0, blockIndex, 1);
+                block = Compression.bufferWriteUIntBE(block, 0, blockIndex, 1);
                 blockIndex += 1;
-                blockIndex = Compression.encodeString(block, blockIndex,
-                    field.name);
-                blockIndex = Compression.encodeString(block, blockIndex,
+
+                let encodedString: EncodedValue =
+                    Compression.encodeString(block, blockIndex,
+                        field.name);
+                blockIndex = encodedString.index;
+                block = encodedString.buffer;
+
+                encodedString = Compression.encodeString(block, blockIndex,
                     field.value);
+                blockIndex = encodedString.index;
+                block = encodedString.buffer;
             }
         }
 
         let returnBlock: Buffer = new Buffer(blockIndex);
         block.copy(returnBlock, 0, 0, blockIndex);
         return returnBlock;
+    }
+
+    set maxDynamicTableSizeLimit(value: number) {
+        this._maxDynamicTableSizeLimit = value;
+        this.resizeDynamicTable();
     }
 }
