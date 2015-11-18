@@ -320,10 +320,41 @@ export class Compression {
     ];
 
     /**
-     * The HPACK Huffman encoding table.
+     * The HPACK Huffman decoding table.
      **/
-    // TODO: Add support for all bytes, not just a subset
-    private static HuffmanTable: Object = {
+    private static HuffmanDecodingTable: Object = {
+        "1111111111000": "\u0000",
+        "11111111111111111011000": "\u0001",
+        "1111111111111111111111100010": "\u0002",
+        "1111111111111111111111100011": "\u0003",
+        "1111111111111111111111100100": "\u0004",
+        "1111111111111111111111100101": "\u0005",
+        "1111111111111111111111100110": "\u0006",
+        "1111111111111111111111100111": "\u0007",
+        "1111111111111111111111101000": "\u0008",
+        "111111111111111111101010": "\u0009",
+        "111111111111111111111111111100": "\u000a",
+        "1111111111111111111111101001": "\u000b",
+        "1111111111111111111111101010": "\u000c",
+        "111111111111111111111111111101": "\u000d",
+        "1111111111111111111111101011": "\u000e",
+        "1111111111111111111111101100": "\u000f",
+        "1111111111111111111111101101": "\u0010",
+        "1111111111111111111111101110": "\u0011",
+        "1111111111111111111111101111": "\u0012",
+        "1111111111111111111111110000": "\u0013",
+        "1111111111111111111111110001": "\u0014",
+        "1111111111111111111111110010": "\u0015",
+        "111111111111111111111111111110": "\u0016",
+        "1111111111111111111111110011": "\u0017",
+        "1111111111111111111111110100": "\u0018",
+        "1111111111111111111111110101": "\u0019",
+        "1111111111111111111111110110": "\u001a",
+        "1111111111111111111111110111": "\u001b",
+        "1111111111111111111111111000": "\u001c",
+        "1111111111111111111111111001": "\u001d",
+        "1111111111111111111111111010": "\u001e",
+        "1111111111111111111111111011": "\u001f",
         "010100": " ",
         "1111111000": "!",
         "1111111001": "\"",
@@ -419,8 +450,142 @@ export class Compression {
         "11111111100": "|",
         "11111111111101": "}",
         "1111111111101": "~",
-        "111111111111111111111111111111": "EOS"
+        "1111111111111111111111111100": "\u007f",
+        "11111111111111100110": "\u0080",
+        "1111111111111111010010": "\u0081",
+        "11111111111111100111": "\u0082",
+        "11111111111111101000": "\u0083",
+        "1111111111111111010011": "\u0084",
+        "1111111111111111010100": "\u0085",
+        "1111111111111111010101": "\u0086",
+        "11111111111111111011001": "\u0087",
+        "1111111111111111010110": "\u0088",
+        "11111111111111111011010": "\u0089",
+        "11111111111111111011011": "\u008a",
+        "11111111111111111011100": "\u008b",
+        "11111111111111111011101": "\u008c",
+        "11111111111111111011110": "\u008d",
+        "111111111111111111101011": "\u008e",
+        "11111111111111111011111": "\u008f",
+        "111111111111111111101100": "\u0090",
+        "111111111111111111101101": "\u0091",
+        "1111111111111111010111": "\u0092",
+        "11111111111111111100000": "\u0093",
+        "111111111111111111101110": "\u0094",
+        "11111111111111111100001": "\u0095",
+        "11111111111111111100010": "\u0096",
+        "11111111111111111100011": "\u0097",
+        "11111111111111111100100": "\u0098",
+        "111111111111111011100": "\u0099",
+        "1111111111111111011000": "\u009a",
+        "11111111111111111100101": "\u009b",
+        "1111111111111111011001": "\u009c",
+        "11111111111111111100110": "\u009d",
+        "11111111111111111100111": "\u009e",
+        "111111111111111111101111": "\u009f",
+        "1111111111111111011010": "\u00a0",
+        "111111111111111011101": "\u00a1",
+        "11111111111111101001": "\u00a2",
+        "1111111111111111011011": "\u00a3",
+        "1111111111111111011100": "\u00a4",
+        "11111111111111111101000": "\u00a5",
+        "11111111111111111101001": "\u00a6",
+        "111111111111111011110": "\u00a7",
+        "11111111111111111101010": "\u00a8",
+        "1111111111111111011101": "\u00a9",
+        "1111111111111111011110": "\u00aa",
+        "111111111111111111110000": "\u00ab",
+        "111111111111111011111": "\u00ac",
+        "1111111111111111011111": "\u00ad",
+        "11111111111111111101011": "\u00ae",
+        "11111111111111111101100": "\u00af",
+        "111111111111111100000": "\u00b0",
+        "111111111111111100001": "\u00b1",
+        "1111111111111111100000": "\u00b2",
+        "111111111111111100010": "\u00b3",
+        "11111111111111111101101": "\u00b4",
+        "1111111111111111100001": "\u00b5",
+        "11111111111111111101110": "\u00b6",
+        "11111111111111111101111": "\u00b7",
+        "11111111111111101010": "\u00b8",
+        "1111111111111111100010": "\u00b9",
+        "1111111111111111100011": "\u00ba",
+        "1111111111111111100100": "\u00bb",
+        "11111111111111111110000": "\u00bc",
+        "1111111111111111100101": "\u00bd",
+        "1111111111111111100110": "\u00be",
+        "11111111111111111110001": "\u00bf",
+        "11111111111111111111100000": "\u00c0",
+        "11111111111111111111100001": "\u00c1",
+        "11111111111111101011": "\u00c2",
+        "1111111111111110001": "\u00c3",
+        "1111111111111111100111": "\u00c4",
+        "11111111111111111110010": "\u00c5",
+        "1111111111111111101000 ": "\u00c6",
+        "1111111111111111111101100": "\u00c7",
+        "11111111111111111111100010": "\u00c8",
+        "11111111111111111111100011": "\u00c9",
+        "11111111111111111111100100": "\u00ca",
+        "111111111111111111111011110": "\u00cb",
+        "111111111111111111111011111": "\u00cc",
+        "11111111111111111111100101": "\u00cd",
+        "111111111111111111110001": "\u00ce",
+        "1111111111111111111101101": "\u00cf",
+        "1111111111111110010": "\u00d0",
+        "111111111111111100011": "\u00d1",
+        "11111111111111111111100110": "\u00d2",
+        "111111111111111111111100000": "\u00d3",
+        "111111111111111111111100001": "\u00d4",
+        "11111111111111111111100111": "\u00d5",
+        "111111111111111111111100010": "\u00d6",
+        "111111111111111111110010": "\u00d7",
+        "111111111111111100100": "\u00d8",
+        "111111111111111100101": "\u00d9",
+        "11111111111111111111101000": "\u00da",
+        "11111111111111111111101001": "\u00db",
+        "1111111111111111111111111101": "\u00dc",
+        "111111111111111111111100011": "\u00dd",
+        "111111111111111111111100100": "\u00de",
+        "111111111111111111111100101": "\u00df",
+        "11111111111111101100": "\u00e0",
+        "111111111111111111110011": "\u00e1",
+        "11111111111111101101": "\u00e2",
+        "111111111111111100110": "\u00e3",
+        "1111111111111111101001": "\u00e4",
+        "111111111111111100111": "\u00e5",
+        "111111111111111101000": "\u00e6",
+        "11111111111111111110011": "\u00e7",
+        "1111111111111111101010": "\u00e8",
+        "1111111111111111101011": "\u00e9",
+        "1111111111111111111101110": "\u00ea",
+        "1111111111111111111101111 ": "\u00eb",
+        "111111111111111111110100": "\u00ec",
+        "111111111111111111110101": "\u00ed",
+        "11111111111111111111101010": "\u00ee",
+        "11111111111111111110100": "\u00ef",
+        "11111111111111111111101011": "\u00f0",
+        "111111111111111111111100110": "\u00f1",
+        "11111111111111111111101100": "\u00f2",
+        "11111111111111111111101101": "\u00f3",
+        "111111111111111111111100111": "\u00f4",
+        "111111111111111111111101000": "\u00f5",
+        "111111111111111111111101001": "\u00f6",
+        "111111111111111111111101010": "\u00f7",
+        "111111111111111111111101011": "\u00f8",
+        "1111111111111111111111111110": "\u00f9",
+        "111111111111111111111101100": "\u00fa",
+        "111111111111111111111101101": "\u00fb",
+        "111111111111111111111101110": "\u00fc",
+        "111111111111111111111101111": "\u00fd",
+        "111111111111111111111110000": "\u00fe",
+        "11111111111111111111101110": "\u00ff",
     };
+
+    /**
+     * The HPACK Huffman decoding table. Calculated from the encoding table at
+     * runtime.
+     */
+    private static HuffmanEncodingTable: Object = {};
 
     /**
      * The default size, in bytes, of the buffer containing the encoded header.
@@ -462,6 +627,14 @@ export class Compression {
         this._maxDynamicTableSize = maxDynamicTableSizeLimit;
         this._maxDynamicTableSizeLimit = maxDynamicTableSizeLimit;
         this._neverIndexTable = [];
+
+        // Generate Huffman encoding table from decoding table
+        for (let bitString in Compression.HuffmanDecodingTable) {
+            if (Compression.HuffmanDecodingTable.hasOwnProperty(bitString)) {
+                let char: string = Compression.HuffmanDecodingTable[bitString];
+                Compression.HuffmanEncodingTable[char] = bitString;
+            }
+        }
     }
 
     /**
@@ -477,7 +650,8 @@ export class Compression {
      * @param start  The specified offset at which to start writing.
      * @param length The number of bytes to write.
      *
-     * @returns {Buffer}
+     * @returns {Buffer} The buffer passed in (or a newly allocated one if that
+     *                   buffer was not large enough.
      */
     private static bufferWriteUIntBE(buffer: Buffer, num: number,
                                      start: number, length: number): Buffer {
@@ -496,13 +670,19 @@ export class Compression {
     }
 
     /**
+     * Copies the specified number bytes from the specified source offset from a
+     * source buffer to a target buffer at the specified target offset.
      *
-     * @param sourceBuffer
-     * @param targetBuffer
-     * @param targetOffset
-     * @param sourceIndex
-     * @param sourceLength
-     * @returns {Buffer}
+     * If the target buffer is not large enough to fit the data, a new buffer is
+     * allocated and returned.
+     *
+     * @param sourceBuffer The specified source buffer.
+     * @param targetBuffer The specified target buffer.
+     * @param targetOffset The specified target buffer index.
+     * @param sourceIndex  The specified source buffer index.
+     * @param sourceLength The specified source length in bytes.
+     * @returns {Buffer} The target buffer passed in (or a newly allocated one
+     *                   if that buffer was not large enough.
      */
     private static bufferCopy(sourceBuffer: Buffer, targetBuffer: Buffer,
                               targetOffset: number, sourceIndex: number,
@@ -544,10 +724,12 @@ export class Compression {
      * removing older entries.
      */
     private resizeDynamicTable(): void {
+        // Ensure that maximum size does not exceed limit
         if (this._maxDynamicTableSize > this._maxDynamicTableSizeLimit) {
             this._maxDynamicTableSize = this._maxDynamicTableSizeLimit;
         }
 
+        // Ensure that table size does not exceed maximum size
         let size = this.getSizeOfDynamicTable();
         while (size > this._maxDynamicTableSize) {
             this._dynamicTable.pop();
@@ -561,6 +743,7 @@ export class Compression {
      * @param field The header field.
      */
     private addHeaderFieldToDynamicTable(field: HeaderField): void {
+        // Header fields are added to the beginning of the table
         this._dynamicTable.splice(0, 0, field);
         this.resizeDynamicTable();
     }
@@ -574,6 +757,7 @@ export class Compression {
      * @returns {HeaderField} The field at the specified index.
      */
     private getHeaderFieldForIndex(index: number): HeaderField {
+        // Static table and dynamic table are technically the same table
         if (index >= 1 && index <= Compression.StaticTable.length) {
             index = index - 1;
             return Compression.StaticTable[index];
@@ -588,8 +772,18 @@ export class Compression {
         }
     }
 
-    private getIndexForHeaderField(field: HeaderField) {
+    /**
+     * Gets the index at which the specified header field is located.
+     *
+     * @param field The specified header field.
+     *
+     * @returns {number} The index at which the specified header field is
+     *                   located, or null if no matching header field is found.
+     */
+    private getIndexForHeaderField(field: HeaderField): number {
         for (let i: number = 0; i < Compression.StaticTable.length; i++) {
+            // Check static table; skip value if necessary (it will have to
+            // be represented as a literal later on)
             if (field.name === Compression.StaticTable[i].name &&
                 (field.value === Compression.StaticTable[i].value ||
                 Compression.StaticTable[i].value === "")) {
@@ -597,6 +791,7 @@ export class Compression {
             }
         }
         for (let i: number = 0; i < this._dynamicTable.length; i++) {
+            // Check dynamic table
             if (field.name === this._dynamicTable[i].name &&
                 field.value === this._dynamicTable[i].value) {
                 return i + 1 + Compression.StaticTable.length;
@@ -605,18 +800,29 @@ export class Compression {
         return null;
     }
 
+    /**
+     * Decodes the bytes at the specified offset of the specified buffer as an
+     * HPACK-encoded integer.
+     *
+     * @param block        The specified buffer
+     * @param blockIndex   The specified offset.
+     * @param prefixLength The size of the HPACK integer encoding prefix.
+     *
+     * @returns {DecodedInteger} The decoded integer.
+     */
     private static decodeInteger(block: Buffer, blockIndex: number,
-                                 prefix: number): DecodedInteger {
+                                 prefixLength: number): DecodedInteger {
         let prefixByte: number = block.readUIntBE(blockIndex, 1);
         let prefixMask: number = 0;
-        for (let i: number = 0; i < prefix; i++) {
+        for (let i: number = 0; i < prefixLength; i++) {
             prefixMask += 1 << i;
         }
 
         let num: number = prefixByte & prefixMask;
         blockIndex += 1;
 
-        if (num < Math.pow(2, prefix) - 1) {
+        // Based on pseudo-code from HPACK specification
+        if (num < Math.pow(2, prefixLength) - 1) {
             return <DecodedInteger>{
                 num: num,
                 index: blockIndex
@@ -639,22 +845,36 @@ export class Compression {
         }
     }
 
+    /**
+     * Encodes the specified integer as an HPACK integer at the specified offset
+     * within the specified buffer and with the specified prefix.
+     *
+     * @param block        The specified buffer.
+     * @param blockIndex   The specified buffer offset.
+     * @param integerValue The specified integer.
+     * @param prefixLength The length of the prefix.
+     * @param prefixValue  The value of the prefix. This value should be
+     *                     relative to the end of the byte, not the prefix
+     *                     length.
+     *
+     * @returns {EncodedValue} Data related to the encoded integer.
+     */
     private static encodeInteger(block: Buffer, blockIndex: number,
-                                 integerValue: number, prefix: number,
+                                 integerValue: number, prefixLength: number,
                                  prefixValue: number): EncodedValue {
-        if (integerValue < Math.pow(2, prefix) - 1) {
+        if (integerValue < Math.pow(2, prefixLength) - 1) {
             let prefixByte: number = prefixValue;
             prefixByte += integerValue;
             block = Compression.bufferWriteUIntBE(block, prefixByte,
                 blockIndex, 1);
         } else {
             let prefixByte: number = prefixValue;
-            prefixByte += Math.pow(2, prefix) - 1;
+            prefixByte += Math.pow(2, prefixLength) - 1;
             block = Compression.bufferWriteUIntBE(block, prefixByte,
                 blockIndex, 1);
             blockIndex += 1;
 
-            integerValue -= Math.pow(2, prefix) - 1;
+            integerValue -= Math.pow(2, prefixLength) - 1;
             while (integerValue >= 128) {
                 block = Compression.bufferWriteUIntBE(block,
                     integerValue % 128 + 128, blockIndex, 1);
@@ -670,6 +890,15 @@ export class Compression {
         };
     }
 
+    /**
+     * Decodes the bytes at the specified offset of the specified buffer as an
+     * HPACK-encoded string.
+     *
+     * @param block      The specified buffer
+     * @param blockIndex The specified offset.
+     *
+     * @returns {DecodedString} The decoded string.
+     */
     private static decodeString(block: Buffer,
                                 blockIndex: number): DecodedString {
         let initialByte: number = block.readUIntBE(blockIndex, 1);
@@ -691,20 +920,21 @@ export class Compression {
                 huffByteStream += huffByte;
             }
 
+            let huffStrBytes: number[] = [];
             let huffByteStreamIndex: number = 0;
             while (huffByteStreamIndex < strLength * 8) {
                 let huffChar: string = huffByteStream.substr(
                     huffByteStreamIndex, 5);
                 huffByteStreamIndex += 5;
 
-                while (Compression.HuffmanTable[huffChar] === undefined &&
-                huffByteStreamIndex < strLength * 8) {
+                while (Compression.HuffmanDecodingTable[huffChar] ===
+                undefined && huffByteStreamIndex < strLength * 8) {
                     huffChar += huffByteStream[huffByteStreamIndex];
                     huffByteStreamIndex++;
                 }
 
                 let decodedHuffChar: string =
-                    Compression.HuffmanTable[huffChar];
+                    Compression.HuffmanDecodingTable[huffChar];
                 if (decodedHuffChar === undefined) {
                     if (huffChar.length > 7) {
                         throw new Http2Error("Padding too long",
@@ -714,13 +944,17 @@ export class Compression {
                             Http2ErrorType.CompressionError);
                     }
                 } else {
-                    str += decodedHuffChar;
+                    huffStrBytes.push(decodedHuffChar.charCodeAt(0));
                 }
             }
+
+            str = new Buffer(huffStrBytes).toString();
         } else {
             let strBuffer = new Buffer(strLength);
             block.copy(strBuffer, 0, blockIndex, blockIndex + strLength);
-            str = strBuffer.toString();
+            // It's not clear what HTTP/2 header fields should be encoded as;
+            // research suggests that only 7-bit ASCII is universally safe
+            str = strBuffer.toString("ascii");
         }
         blockIndex += strLength;
 
@@ -730,28 +964,88 @@ export class Compression {
         }
     }
 
-    private static encodeString(block: Buffer, blockIndex: number,
-                                str: string): EncodedValue {
-        let encodedInteger: EncodedValue = this.encodeInteger(block,
-            blockIndex, Buffer.byteLength(str), 7, 0);
-        blockIndex = encodedInteger.index;
-        block = encodedInteger.buffer;
+    /**
+     * Encodes the specified string as an HPACK string at the specified offset
+     * within the specified buffer.
+     *
+     * @param block      The specified buffer.
+     * @param blockIndex The specified buffer offset.
+     * @param str        The specified string.
+     * @param huffman    Whether the string should be encoded using Huffman
+     *                   encoding. Default is true.
+     *
+     * @returns {EncodedValue} Data related to the encoded string.
+     */
+    private static encodeString(block: Buffer, blockIndex: number, str: string,
+                                huffman: boolean = true): EncodedValue {
+        let buffer: Buffer;
+        if (huffman) {
+            let huffByteStream: string = "";
+            for (let i: number = 0; i < str.length; i++) {
+                if (str.charCodeAt(i) < 0x20 || str.charCodeAt(i) > 0x7e) {
+                    // This implementation only allows printable ASCII
+                    // characters in header fields
+                    throw new Http2Error("Header field contains non-ASCII or" +
+                        " non-printable character",
+                        Http2ErrorType.CompressionError);
+                }
+                huffByteStream +=
+                    Compression.HuffmanEncodingTable[str.charAt(i)];
+            }
 
-        // TODO: Add support for Huffman encoding
-        let buffer: Buffer = new Buffer(str);
-        block = Compression.bufferCopy(buffer, block, blockIndex, 0,
-            buffer.length);
+            while (huffByteStream.length % 8 !== 0) {
+                huffByteStream += "1";
+            }
 
-        return <EncodedValue>{
-            index: blockIndex + buffer.length,
-            buffer: block
-        };
+            let encodedInteger: EncodedValue = Compression.encodeInteger(block,
+                blockIndex, huffByteStream.length / 8, 7, 0x80);
+            blockIndex = encodedInteger.index;
+            block = encodedInteger.buffer;
+
+            for (let i = 0; i < huffByteStream.length; i += 8) {
+                let charCode: number = parseInt(huffByteStream.substr(i, 8), 2);
+                block = Compression.bufferWriteUIntBE(block, charCode,
+                    blockIndex, 1);
+                blockIndex += 1;
+            }
+
+            return <EncodedValue>{
+                index: blockIndex,
+                buffer: block
+            };
+        } else {
+            buffer = new Buffer(str);
+
+            let encodedInteger: EncodedValue = Compression.encodeInteger(block,
+                blockIndex, buffer.length, 7, 0x00);
+            blockIndex = encodedInteger.index;
+            block = encodedInteger.buffer;
+
+            block = Compression.bufferCopy(buffer, block, blockIndex, 0,
+                buffer.length);
+
+            return <EncodedValue>{
+                index: blockIndex + buffer.length,
+                buffer: block
+            };
+        }
     }
 
+    /**
+     * Decodes the bytes at the specified offset of the specified buffer as an
+     * HPACK-encoded header field.
+     *
+     * @param block      The specified buffer.
+     * @param blockIndex The specified buffer offset.
+     * @param isIndex    Whether the name bytes are encoded as an literal or a
+     *                   index.
+     *
+     * @returns {DecodedHeaderField} The decoded header field.
+     */
     private decodeHeaderField(block: Buffer, blockIndex: number,
-                              newName: boolean): DecodedHeaderField {
+                              isIndex: boolean): DecodedHeaderField {
         let name: string;
-        if (newName) {
+        if (isIndex) {
             // New name
             blockIndex += 1;
             let decodedString: DecodedString =
@@ -884,15 +1178,15 @@ export class Compression {
                 }
             } else {
                 // Literal header field with new name
-                block = Compression.bufferWriteUIntBE(block, 0, blockIndex, 1);
-                blockIndex += 1;
-
+                let encodedInteger: EncodedValue =
+                    Compression.encodeInteger(block, blockIndex, 0, 6, 0x40);
+                blockIndex = encodedInteger.index;
+                block = encodedInteger.buffer;
                 let encodedString: EncodedValue =
                     Compression.encodeString(block, blockIndex,
                         field.name);
                 blockIndex = encodedString.index;
                 block = encodedString.buffer;
-
                 encodedString = Compression.encodeString(block, blockIndex,
                     field.value);
                 blockIndex = encodedString.index;
