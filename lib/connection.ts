@@ -5,7 +5,7 @@ import {Socket} from "net";
 import {Compression} from "./compression";
 import {Http2ErrorType, Http2Error} from "./error"
 import {FrameType, Frame, SettingsFlags, SettingsParam, SettingsFrame,
-    GoAwayFrame} from "./frame";
+    PingFlags, PingFrame, GoAwayFrame} from "./frame";
 import {Server} from "./server";
 import {Stream, StreamEntry} from "./stream";
 import {HeaderField} from "./frame";
@@ -27,7 +27,6 @@ export class Connection {
     private _streams: StreamEntry[];
 
     private _serverSettings: SettingsFrame;
-    private _lastServerSettingsAcknowledged: boolean;
     private _clientSettings: SettingsFrame;
 
     private _compression: Compression;
@@ -40,6 +39,9 @@ export class Connection {
     private _receivedSettingsFrame: boolean;
     private _goAwayFrameSent: boolean;
     private _errorOccurred: boolean;
+
+    private _lastServerSettingsAcknowledged: boolean;
+    private _lastPingAcknowledged: boolean;
 
     /**
      * Initializes a new instance of the Connection class.
@@ -58,7 +60,6 @@ export class Connection {
 
         this._serverSettings = new SettingsFrame();
         this._serverSettings.setDefaults();
-        this._lastServerSettingsAcknowledged = false;
         this._clientSettings = null;
 
         this._compression = new Compression(this._serverSettings.getValue(
@@ -73,6 +74,9 @@ export class Connection {
         this._receivedSettingsFrame = false;
         this._goAwayFrameSent = false;
         this._errorOccurred = false;
+
+        this._lastServerSettingsAcknowledged = false;
+        this._lastPingAcknowledged = false;
     }
 
     get compression(): Compression {
@@ -175,6 +179,13 @@ export class Connection {
                         this.handleSettingsFrame(<SettingsFrame>frame);
                     }
                     return;
+                } else if (frame.type === FrameType.Ping) {
+                    if (frame.flags & PingFlags.Ack) {
+                        // TODO: Send error using timeout if not acknowledged
+                        this._lastPingAcknowledged = true;
+                    } else {
+                        this.handlePingFrame(<PingFrame>frame);
+                    }
                 }
             } else {
                 let stream: Stream = this.getStreamWithId(frame.streamId);
@@ -222,6 +233,10 @@ export class Connection {
         this._compression.maxDynamicTableSizeLimit =
             this._clientSettings.getValue(SettingsParam.HeaderTableSize);
         this.sendFrame(new SettingsFrame(undefined, true));
+    }
+
+    private handlePingFrame(frame: PingFrame): void {
+        this.sendFrame(new PingFrame(undefined, frame.data, true));
     }
 
     /**
@@ -283,9 +298,9 @@ export class Connection {
                     if (this._dataBufferIndex >= 3) {
                         this._dataBufferFrameLength =
                             this._dataBuffer.readUIntBE(0, 3) +
-                            Frame.HeaderSize;
+                            Frame.HeaderLength;
                         // If frame size exceeds maximum, throw error
-                        if (this._dataBufferFrameLength - Frame.HeaderSize >
+                        if (this._dataBufferFrameLength - Frame.HeaderLength >
                             this._serverSettings.getValue(
                                 SettingsParam.MaxFrameSize)) {
                             throw new Http2Error("Frame size exceeds maximum",

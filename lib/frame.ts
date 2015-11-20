@@ -20,7 +20,7 @@ export abstract class Frame {
     /**
      * The size of the frame header in octets.
      */
-    static HeaderSize = 9;
+    static HeaderLength = 9;
 
     protected _length: number;
     protected _type: FrameType;
@@ -50,6 +50,8 @@ export abstract class Frame {
             return new HeadersFrame(compression, frameData);
         } else if (type === FrameType.Settings) {
             return new SettingsFrame(frameData);
+        } else if (type === FrameType.Ping) {
+            return new PingFrame(frameData);
         } else if (type === FrameType.GoAway) {
             return new GoAwayFrame(frameData);
         } else {
@@ -71,7 +73,7 @@ export abstract class Frame {
     }
 
     getBytes(): Buffer {
-        let buffer = new Buffer(this._length + Frame.HeaderSize);
+        let buffer = new Buffer(this._length + Frame.HeaderLength);
         buffer.writeUIntBE(this._length, 0, 3);
         buffer.writeUIntBE(this._type, 3, 1);
         buffer.writeUIntBE(this._flags, 4, 1);
@@ -102,7 +104,7 @@ export class DataFrame extends Frame {
 
             if (this._flags & DataFlags.Padded) {
                 let paddingLength: number = frameData.readUIntBE(
-                    Frame.HeaderSize, 1);
+                    Frame.HeaderLength, 1);
                 if (paddingLength === 0) {
                     // A padding length of 0 corresponds to one octet for some
                     // reason, according to the spec (section 6.1)
@@ -114,12 +116,12 @@ export class DataFrame extends Frame {
                 }
 
                 this._data = new Buffer(this._length - paddingLength);
-                frameData.copy(this._data, 0, Frame.HeaderSize + 1,
-                    this._length + Frame.HeaderSize - paddingLength);
+                frameData.copy(this._data, 0, Frame.HeaderLength + 1,
+                    this._length + Frame.HeaderLength - paddingLength);
             } else {
                 this._data = new Buffer(this._length);
-                frameData.copy(this._data, 0, Frame.HeaderSize, this._length +
-                    Frame.HeaderSize);
+                frameData.copy(this._data, 0, Frame.HeaderLength, this._length +
+                    Frame.HeaderLength);
             }
         } else {
             super(undefined, data.length, DataFrame.FrameType,
@@ -135,7 +137,7 @@ export class DataFrame extends Frame {
 
     getBytes(): Buffer {
         let buffer = super.getBytes();
-        this._data.copy(buffer, Frame.HeaderSize, 0, this._data.length);
+        this._data.copy(buffer, Frame.HeaderLength, 0, this._data.length);
         return buffer;
     }
 }
@@ -185,7 +187,7 @@ export class HeadersFrame extends Frame implements HeaderTypeFrame {
                     Http2ErrorType.ProtocolError);
             }
 
-            let index = Frame.HeaderSize;
+            let index = Frame.HeaderLength;
 
             let paddingLength: number = 0;
             if (this._flags & DataFlags.Padded) {
@@ -240,7 +242,7 @@ export class HeadersFrame extends Frame implements HeaderTypeFrame {
 
         let buffer: Buffer = super.getBytes();
 
-        let index: number = Frame.HeaderSize;
+        let index: number = Frame.HeaderLength;
         if (this._flags & HeadersFlags.Priority) {
             buffer.writeUIntBE(Number(this._dependencyExclusive) << 31 |
                 this._dependencyStreamId, index, 4);
@@ -256,6 +258,14 @@ export class HeadersFrame extends Frame implements HeaderTypeFrame {
     get headerFields(): HeaderField[] {
         return this._headerFields;
     }
+}
+
+export class PriorityFrame extends Frame {
+    static FrameType = FrameType.Priority;
+}
+
+export class RstStreamFrame extends Frame {
+    static FrameType = FrameType.RstStream;
 }
 
 export const enum SettingsFlags {
@@ -300,25 +310,32 @@ export class SettingsFrame extends Frame {
     static FrameType = FrameType.Settings;
 
     static DefaultParametersLength = 36;
-    static DefaultParameters = [{
-        param: SettingsParam.HeaderTableSize,
-        value: 4096
-    }, {
-        param: SettingsParam.EnablePush,
-        value: 1
-    }, {
-        param: SettingsParam.MaxConcurrentStreams,
-        value: null
-    }, {
-        param: SettingsParam.InitialWindowSize,
-        value: 65535
-    }, {
-        param: SettingsParam.MaxFrameSize,
-        value: 16384
-    }, {
-        param: SettingsParam.MaxHeaderListSize,
-        value: 1024
-    }];
+    static DefaultParameters = [
+        {
+            param: SettingsParam.HeaderTableSize,
+            value: 4096
+        },
+        {
+            param: SettingsParam.EnablePush,
+            value: 1
+        },
+        {
+            param: SettingsParam.MaxConcurrentStreams,
+            value: null
+        },
+        {
+            param: SettingsParam.InitialWindowSize,
+            value: 65535
+        },
+        {
+            param: SettingsParam.MaxFrameSize,
+            value: 16384
+        },
+        {
+            param: SettingsParam.MaxHeaderListSize,
+            value: 1024
+        }
+    ];
 
     private _parameters: SettingsEntry[];
 
@@ -399,7 +416,7 @@ export class SettingsFrame extends Frame {
     getBytes(): Buffer {
         let buffer = super.getBytes();
         if (!(this._flags & SettingsFlags.Ack)) {
-            let index: number = Frame.HeaderSize;
+            let index: number = Frame.HeaderLength;
             for (let item of this._parameters) {
                 buffer.writeUIntBE(item.param, index, 2);
                 buffer.writeUIntBE(item.value, index + 2, 4);
@@ -407,6 +424,65 @@ export class SettingsFrame extends Frame {
             }
         }
         return buffer;
+    }
+}
+
+export class PushPromiseFrame extends Frame {
+    static FrameType = FrameType.PushPromise;
+}
+
+export const enum PingFlags {
+    Ack = 0x1
+}
+
+export class PingFrame extends Frame {
+    static FrameType = FrameType.Priority;
+    static DataLength = 8;
+    static DataFillConstant = 65;
+
+    private _data: Buffer;
+
+    constructor(frameData?: Buffer, data?: Buffer, ack?: boolean) {
+        if (frameData !== undefined) {
+            super(frameData);
+
+            if (this._streamId !== 0) {
+                throw new Http2Error("Invalid PING frame stream type",
+                    Http2ErrorType.ProtocolError);
+            }
+
+            if (this._length !== PingFrame.DataLength) {
+                throw new Http2Error("Invalid PING frame size",
+                    Http2ErrorType.FrameSizeError);
+            }
+
+            if (data === undefined) {
+                this._data = new Buffer(PingFrame.DataLength);
+                frameData.copy(this._data, 0, Frame.HeaderLength,
+                    Frame.HeaderLength + 8);
+            } else {
+                this._data = data;
+            }
+
+            if (ack) {
+                this._flags |= PingFlags.Ack;
+            }
+        } else {
+            super(undefined, 8, PingFrame.FrameType, 0, 0);
+
+            this._data = new Buffer(PingFrame.DataLength);
+            this._data.fill(PingFrame.DataFillConstant);
+        }
+    }
+
+    getBytes() {
+        let buffer = super.getBytes();
+        this._data.copy(buffer, Frame.HeaderLength, 0, this._data.length);
+        return buffer;
+    }
+
+    get data(): Buffer {
+        return this._data;
     }
 }
 
@@ -426,8 +502,8 @@ export class GoAwayFrame extends Frame {
                     Http2ErrorType.ProtocolError);
             }
 
-            this._lastStreamId = frameData.readUIntBE(Frame.HeaderSize, 4);
-            this._errorCode = frameData.readUIntBE(Frame.HeaderSize + 4, 4);
+            this._lastStreamId = frameData.readUIntBE(Frame.HeaderLength, 4);
+            this._errorCode = frameData.readUIntBE(Frame.HeaderLength + 4, 4);
         } else {
             super(undefined, 8, GoAwayFrame.FrameType, 0, 0);
 
@@ -438,8 +514,16 @@ export class GoAwayFrame extends Frame {
 
     getBytes(): Buffer {
         let buffer = super.getBytes();
-        buffer.writeUIntBE(this._lastStreamId & 0x7ffffff, Frame.HeaderSize, 4);
-        buffer.writeUIntBE(this._errorCode, Frame.HeaderSize + 4, 4);
+        buffer.writeUIntBE(this._lastStreamId & 0x7ffffff, Frame.HeaderLength, 4);
+        buffer.writeUIntBE(this._errorCode, Frame.HeaderLength + 4, 4);
         return buffer;
     }
+}
+
+export class WindowUpdateFrame extends Frame {
+    static FrameType = FrameType.WindowUpdate;
+}
+
+export class ContinuationFrame extends Frame {
+    static FrameType = FrameType.Continuation;
 }
