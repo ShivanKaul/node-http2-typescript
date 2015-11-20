@@ -5,7 +5,11 @@ import {Connection} from "./connection";
 import {HeaderField} from "./frame";
 import {Stream} from "./stream";
 
-export interface ResponseCallback {
+export interface HandlerCallback {
+    (data: Buffer, cb: ServerCallback): void
+}
+
+export interface ServerCallback {
     (headers: HeaderField[], data: Buffer): void
 }
 
@@ -16,7 +20,7 @@ export interface ServerConfig {
 export interface ResponseConfig {
     method: string;
     url: string;
-    callback(cb: ResponseCallback): void;
+    callback: HandlerCallback;
 }
 
 export class Server {
@@ -24,7 +28,7 @@ export class Server {
     private _port: number;
     private _connections: Connection[];
     private _responseConfigs: ResponseConfig[];
-    private _errorCallback: (cb: ResponseCallback) => void;
+    private _errorCallback: HandlerCallback;
 
     constructor(config: ServerConfig) {
         this._connections = [];
@@ -42,7 +46,7 @@ export class Server {
         this._errorCallback = null;
     }
 
-    onRequest(method: string, url: string, callback: (cb: ResponseCallback) => void) {
+    onRequest(method: string, url: string, callback: HandlerCallback) {
         for (let item of this._responseConfigs) {
             if (item.method === method && item.url === url) {
                 item.callback = callback;
@@ -57,11 +61,12 @@ export class Server {
         });
     }
 
-    onError(callback: (cb: ResponseCallback) => void) {
+    onError(callback: HandlerCallback) {
         this._errorCallback = callback;
     }
 
-    handleRequest(stream: Stream, headerFields: HeaderField[]): void {
+    handleRequest(stream: Stream, headerFields: HeaderField[],
+                  data: Buffer): void {
         let methodField: HeaderField;
         for (let field of headerFields) {
             if (field.name === ":method") {
@@ -81,7 +86,8 @@ export class Server {
         for (let item of this._responseConfigs) {
             if (item.method.toLowerCase() === methodField.value.toLowerCase()) {
                 if (item.url.toLowerCase() === pathField.value.toLowerCase()) {
-                    item.callback((headers: HeaderField[], data: Buffer) => {
+                    item.callback(data, (headers: HeaderField[],
+                                         data: Buffer) => {
                         stream.sendResponse(headers, data);
                     });
                     return;

@@ -140,6 +140,14 @@ export class DataFrame extends Frame {
     }
 }
 
+export const enum HeaderTypeFlags {
+    EndHeaders = 0x4,
+}
+
+export interface HeaderTypeFrame extends Frame {
+    headerFields: HeaderField[];
+}
+
 export const enum HeadersFlags {
     EndStream = 0x1,
     EndHeaders = 0x4,
@@ -152,7 +160,7 @@ export interface HeaderField {
     value: string;
 }
 
-export class HeadersFrame extends Frame {
+export class HeadersFrame extends Frame implements HeaderTypeFrame {
     static FrameType = FrameType.Headers;
 
     private _compression: Compression;

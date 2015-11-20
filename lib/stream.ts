@@ -1,8 +1,8 @@
 import {Connection} from "./connection";
-import {Frame, FrameType, DataFrame, HeadersFlags,
-    HeadersFrame, SettingsParam} from "./frame";
+import {Frame, FrameType, DataFrame, HeaderTypeFlags, HeaderTypeFrame,
+    DataFlags, HeadersFlags, HeaderField, HeadersFrame,
+    SettingsParam} from "./frame";
 import {Server} from "./server";
-import {HeaderField} from "./frame";
 import {Http2ErrorType, Http2Error} from "./error";
 
 export enum StreamState {
@@ -21,18 +21,55 @@ export class Stream {
     private _streamId: number;
     private _state: StreamState;
     private _lastFrameReceived: Frame;
-    private _headerFrames: Frame[];
+    private _headerFrames: HeaderTypeFrame[];
+    private _dataFrames: DataFrame[];
+    private _streamClosedByClient: boolean;
 
-    constructor(server: Server, connection: Connection, frame: Frame,
-                streamId: number) {
+    constructor(server: Server, connection: Connection, streamId: number,
+                firstReceivedFrame?: Frame) {
         this._server = server;
         this._connection = connection;
         this._streamId = streamId;
         this._state = StreamState.Idle;
         this._lastFrameReceived = null;
         this._headerFrames = [];
+        this._dataFrames = [];
+        this._streamClosedByClient = false;
 
-        this.handleFrame(frame);
+        if (firstReceivedFrame !== undefined) {
+            this.handleFrame(firstReceivedFrame);
+        }
+    }
+
+    handleRequest() {
+        let headerFields: HeaderField[] = [];
+        for (let frame of this._headerFrames) {
+            if (frame.type === FrameType.Headers) {
+                headerFields = headerFields.concat(
+                    (<HeadersFrame>frame).headerFields);
+            } else {
+                // TODO: Implement support for CONTINUATION frames
+            }
+        }
+
+        let dataLength: number = 0;
+        for (let frame of this._dataFrames) {
+            dataLength += frame.data.length;
+        }
+
+        let dataBuffer: Buffer;
+        if (dataLength !== 0) {
+            dataBuffer = new Buffer(dataLength);
+            let dataIndex: number = 0;
+            for (let frame of this._dataFrames) {
+                frame.data.copy(dataBuffer, dataIndex, 0, frame.data.length);
+                dataIndex += frame.data.length;
+            }
+        } else {
+            dataBuffer = null;
+        }
+
+        this._server.handleRequest(this, headerFields, dataBuffer);
     }
 
     sendPushPromise() {
@@ -44,7 +81,7 @@ export class Stream {
         if (headers === undefined) {
             headers = [];
             if (data === undefined) {
-                // 404 File Not Found
+                // 404 Not Found
                 headers.push(<HeaderField>{
                     name: ":status",
                     value: "404"
@@ -120,28 +157,94 @@ export class Stream {
 
     handleFrame(frame: Frame): void {
         try {
-            if (frame.streamId === FrameType.Headers) {
+            // If a CONTINUATION frame is expected, make sure this frame is a
+            // CONTINUATION frame
+            if (this._headerFrames.length !== 0) {
+                let lastFrame: HeaderTypeFrame =
+                    this._headerFrames[this._headerFrames.length - 1];
+                if (!(lastFrame.flags & HeaderTypeFlags.EndHeaders)) {
+                    if (frame.type !== FrameType.Continuation) {
+                        throw new Http2Error("CONTINUATION frame expected" +
+                            " but not received",
+                            Http2ErrorType.ProtocolError);
+                    }
+                }
+            }
+
+            // Verify that the frame received matches the state we are in
+            if (this._state === StreamState.Idle) {
+                if (frame.type !== FrameType.Headers &&
+                    frame.type !== FrameType.PushPromise &&
+                    frame.type !== FrameType.Priority) {
+                    throw new Http2Error("Frame other than HEADERS or" +
+                        " PUSH_PROMISE received in idle state",
+                        Http2ErrorType.ProtocolError);
+                }
+            } else if (this._state === StreamState.ReservedLocal) {
+                if (frame.type !== FrameType.RstStream &&
+                    frame.type !== FrameType.Priority &&
+                    frame.type !== FrameType.WindowUpdate) {
+                    throw new Http2Error("Frame other than RST_STREAM," +
+                        " PRIORITY, or WINDOW_UPDATE received in reserved" +
+                        " (local) state",
+                        Http2ErrorType.ProtocolError);
+                }
+            } else if (this._state === StreamState.ReservedRemote) {
+                if (frame.type !== FrameType.Headers &&
+                    frame.type !== FrameType.RstStream &&
+                    frame.type !== FrameType.Priority) {
+                    throw new Http2Error("Frame other than HEADERS," +
+                        " RST_STREAM, or PRIORITY received in reserved" +
+                        " (remote) state",
+                        Http2ErrorType.ProtocolError);
+                }
+            } else if (this._state === StreamState.HalfClosedRemote) {
+                if (frame.type !== FrameType.WindowUpdate &&
+                    frame.type !== FrameType.Priority &&
+                    frame.type !== FrameType.RstStream) {
+                    throw new Http2Error("Frame other than WINDOW_UPDATE," +
+                        " PRIORITY, or RST_STREAM received in half-closed" +
+                        " (remote) state", undefined,
+                        Http2ErrorType.StreamClosed);
+                }
+            } else if (this._state === StreamState.Closed) {
+                if (this._streamClosedByClient) {
+                    if (frame.type !== FrameType.Priority) {
+                        throw new Http2Error("Frame other than PRIORITY" +
+                            " received in closed state", undefined,
+                            Http2ErrorType.StreamClosed);
+                    }
+                }
+            }
+
+            // Process DATA frame
+            if (frame.streamId === FrameType.Data &&
+                this._state !== StreamState.Closed) {
+                let dataFrame: DataFrame = <DataFrame>frame;
+                this._dataFrames.push(dataFrame);
+
+                if (dataFrame.flags & DataFlags.EndStream) {
+                    if (this._state === StreamState.Open) {
+                        this._state = StreamState.HalfClosedRemote;
+                    } else if (this._state === StreamState.HalfClosedLocal) {
+                        this._state = StreamState.Closed;
+                    }
+                    this.handleRequest();
+                }
+            }
+
+            // Process HEADERS frame
+            if (frame.streamId === FrameType.Headers &&
+                this._state !== StreamState.Closed) {
                 if (this._headerFrames.length !== 0) {
                     throw new Http2Error("More than one HEADERS frame" +
                         " received for a single stream",
                         Http2ErrorType.ProtocolError);
                 }
 
-                if (this._state === StreamState.ReservedLocal) {
-                    throw new Http2Error("Received HEADERS frame while in" +
-                        " reserved (local) state",
-                        Http2ErrorType.ProtocolError);
-                } else if (this._state === StreamState.HalfClosedRemote) {
-                    throw new Http2Error("Received HEADERS frame while in" +
-                        " half-closed (remote) state", undefined,
-                        Http2ErrorType.StreamClosed);
-                } else if (this._state === StreamState.Closed) {
-                    throw new Http2Error("Received HEADERS frame while in" +
-                        " closed state", Http2ErrorType.ProtocolError,
-                        Http2ErrorType.StreamClosed);
-                }
-
                 let headersFrame: HeadersFrame = <HeadersFrame>frame;
+                this._headerFrames.push(<HeaderTypeFrame>frame);
+
                 if (headersFrame.flags & HeadersFlags.EndHeaders) {
                     if (this._state === StreamState.Idle) {
                         this._state = StreamState.Open;
@@ -155,20 +258,7 @@ export class Stream {
                         } else if (this._state === StreamState.HalfClosedLocal) {
                             this._state = StreamState.Closed;
                         }
-
-                        this._headerFrames.push(frame);
-
-                        let headerFields: HeaderField[] = [];
-                        for (let frame of this._headerFrames) {
-                            if (frame.type === FrameType.Headers) {
-                                headerFields = headerFields.concat(
-                                    (<HeadersFrame>frame).headerFields);
-                            } else {
-                                // TODO: Implement support for CONTINUATION frames
-                            }
-                        }
-
-                        this._server.handleRequest(this, headerFields);
+                        this.handleRequest();
                     }
                 }
             }

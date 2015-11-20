@@ -191,8 +191,8 @@ export class Connection {
                 if (frame.type === FrameType.Headers) {
                     if (stream === null) {
                         this._streams.push({
-                            stream: new Stream(this._server, this, frame,
-                                frame.streamId),
+                            stream: new Stream(this._server, this,
+                                frame.streamId, frame),
                             streamId: frame.streamId
                         });
                     } else {
