@@ -518,6 +518,10 @@ export class GoAwayFrame extends Frame {
         buffer.writeUIntBE(this._errorCode, Frame.HeaderLength + 4, 4);
         return buffer;
     }
+
+    get errorCode(): Http2ErrorType {
+        return this._errorCode;
+    }
 }
 
 export class WindowUpdateFrame extends Frame {

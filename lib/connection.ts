@@ -186,6 +186,8 @@ export class Connection {
                     } else {
                         this.handlePingFrame(<PingFrame>frame);
                     }
+                } else if (frame.type === FrameType.GoAway) {
+                    this.handleGoAwayFrame(<GoAwayFrame>frame);
                 }
             } else {
                 let stream: Stream = this.getStreamWithId(frame.streamId);
@@ -237,6 +239,12 @@ export class Connection {
 
     private handlePingFrame(frame: PingFrame): void {
         this.sendFrame(new PingFrame(undefined, frame.data, true));
+    }
+
+    private handleGoAwayFrame(frame: GoAwayFrame): void {
+        if (frame.errorCode !== Http2ErrorType.NoError) {
+            this._socket.end();
+        }
     }
 
     /**
