@@ -95,7 +95,7 @@ export class Connection {
      */
     sendError(error: Http2Error): void {
         let frame = new GoAwayFrame(undefined,
-            this.getLastClientInitiatedStreamId(), error.type);
+            this.getLastClientInitiatedStreamId(), error.connectionErrorType);
         this._socket.write(frame.getBytes());
         this._goAwayFrameSent = true;
         this._errorOccurred = true;

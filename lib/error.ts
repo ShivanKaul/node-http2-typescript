@@ -16,14 +16,22 @@ export const enum Http2ErrorType {
 }
 
 export class Http2Error extends Error {
-    private _type: Http2ErrorType;
+    private _connectionErrorType: Http2ErrorType;
+    private _streamErrorType: Http2ErrorType;
 
-    constructor(message: string, type: Http2ErrorType) {
+    constructor(message: string, connectionErrorType: Http2ErrorType,
+                streamErrorType?: Http2ErrorType) {
         super(message);
-        this._type = type;
+
+        this._connectionErrorType = connectionErrorType;
+        this._streamErrorType = streamErrorType;
     }
 
-    get type(): Http2ErrorType {
-        return this._type;
+    get connectionErrorType(): Http2ErrorType {
+        return this._connectionErrorType;
+    }
+
+    get streamErrorType(): Http2ErrorType {
+        return this._streamErrorType;
     }
 }
