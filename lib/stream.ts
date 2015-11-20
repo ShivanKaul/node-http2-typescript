@@ -1,8 +1,9 @@
 import {Connection} from "./connection";
 import {Frame, FrameType, DataFrame, HeadersFlags,
-    HeadersFrame} from "./frame";
+    HeadersFrame, SettingsParam} from "./frame";
 import {Server} from "./server";
 import {HeaderField} from "./frame";
+import {Http2Error} from "./error";
 
 export enum StreamState {
     Idle,
@@ -34,53 +35,80 @@ export class Stream {
         this.handleFrame(frame);
     }
 
-    sendResponse(data?: Buffer) {
+    sendResponse(headers?: HeaderField[], data?: Buffer) {
+        if (headers === undefined) {
+            headers = [];
+            if (data === undefined) {
+                // 404 File Not Found
+                headers.push(<HeaderField>{
+                    name: ":status",
+                    value: "404"
+                });
+            } else {
+                // 200 OK
+                headers.push(<HeaderField>{
+                    name: ":status",
+                    value: "200"
+                });
+            }
+        }
+
         if (data === undefined) {
-            // 404 File Not Found
-            let headers: HeaderField[] = [];
-            headers.push(<HeaderField>{
-                name: ":status",
-                value: "404"
-            });
-
             let headersFrame: HeadersFrame = new HeadersFrame(
                 this._connection.compression, undefined, headers,
-                this._streamId, false, true, false, undefined, undefined,
+                this._streamId, true, true, false, undefined, undefined,
                 undefined);
             this._connection.sendFrame(headersFrame);
-
-            let dataFrame: DataFrame = new DataFrame(undefined,
-                new Buffer("404: File Not Found."), this._streamId, true);
-            this._connection.sendFrame(dataFrame);
         } else {
-            // 200 OK
-            let headers: HeaderField[] = [];
-            headers.push(<HeaderField>{
-                name: ":status",
-                value: "200"
-            });
-
             let headersFrame: HeadersFrame = new HeadersFrame(
                 this._connection.compression, undefined, headers,
                 this._streamId, false, true, false, undefined, undefined,
                 undefined);
             this._connection.sendFrame(headersFrame);
 
-            let dataFrame: DataFrame = new DataFrame(undefined, data,
+            let dataIndex: number = 0;
+            let maxFrameSize: number = this._connection.clientSettings.getValue(
+                SettingsParam.MaxFrameSize);
+            while (data.length - dataIndex > maxFrameSize) {
+                let dataBuffer: Buffer = new Buffer(SettingsParam.MaxFrameSize);
+                data.copy(dataBuffer, 0, dataIndex,
+                    dataIndex + dataBuffer.length);
+                let dataFrame: DataFrame = new DataFrame(undefined, dataBuffer,
+                    this._streamId, false);
+                this._connection.sendFrame(dataFrame);
+                dataIndex += dataBuffer.length;
+            }
+
+            let dataBuffer: Buffer = new Buffer(data.length - dataIndex);
+            data.copy(dataBuffer, 0, dataIndex, dataIndex + dataBuffer.length);
+            let dataFrame: DataFrame = new DataFrame(undefined, dataBuffer,
                 this._streamId, true);
             this._connection.sendFrame(dataFrame);
         }
     }
 
+    sendError(error: Http2Error): void {
+        // TODO: Send RST_STREAM frame or pass up to connection
+    }
+
     handleFrame(frame: Frame): void {
-        if (frame.streamId === FrameType.Headers) {
-            let headersFrame: HeadersFrame = <HeadersFrame>frame;
-            if (headersFrame.flags & HeadersFlags.EndHeaders) {
-                this._endHeaders = true;
+        try {
+            if (frame.streamId === FrameType.Headers) {
+                let headersFrame: HeadersFrame = <HeadersFrame>frame;
+                if (headersFrame.flags & HeadersFlags.EndHeaders) {
+                    this._endHeaders = true;
+                }
+                if (headersFrame.flags & HeadersFlags.EndStream) {
+                    this._state = StreamState.HalfClosedRemote;
+                    this._server.handleRequest(this, headersFrame.headerFields);
+                }
             }
-            if (headersFrame.flags & HeadersFlags.EndStream) {
-                this._state = StreamState.HalfClosedRemote;
-                this._server.handleRequest(this, headersFrame.headerFields);
+        }
+        catch (error) {
+            if (error instanceof Http2Error) {
+                this.sendError(error);
+            } else {
+                throw error;
             }
         }
     }

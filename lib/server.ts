@@ -5,6 +5,10 @@ import {Connection} from "./connection";
 import {HeaderField} from "./frame";
 import {Stream} from "./stream";
 
+export interface ResponseCallback {
+    (headers: HeaderField[], data: Buffer): void
+}
+
 export interface ServerConfig {
     port?: number;
 }
@@ -12,7 +16,7 @@ export interface ServerConfig {
 export interface ResponseConfig {
     method: string;
     url: string;
-    callback(cb: (data: Buffer) => void): void;
+    callback(cb: ResponseCallback): void;
 }
 
 export class Server {
@@ -20,6 +24,7 @@ export class Server {
     private _port: number;
     private _connections: Connection[];
     private _responseConfigs: ResponseConfig[];
+    private _errorCallback: (cb: ResponseCallback) => void;
 
     constructor(config: ServerConfig) {
         this._connections = [];
@@ -34,10 +39,10 @@ export class Server {
         this._server.listen(this._port);
 
         this._responseConfigs = [];
+        this._errorCallback = null;
     }
 
-    onRequest(method: string, url: string,
-              callback: (cb: (data: Buffer) => void) => void) {
+    onRequest(method: string, url: string, callback: (cb: ResponseCallback) => void) {
         for (let item of this._responseConfigs) {
             if (item.method === method && item.url === url) {
                 item.callback = callback;
@@ -50,6 +55,10 @@ export class Server {
             url: url,
             callback: callback
         });
+    }
+
+    onError(callback: (cb: ResponseCallback) => void) {
+        this._errorCallback = callback;
     }
 
     handleRequest(stream: Stream, headerFields: HeaderField[]): void {
@@ -72,11 +81,16 @@ export class Server {
         for (let item of this._responseConfigs) {
             if (item.method.toLowerCase() === methodField.value.toLowerCase()) {
                 if (item.url.toLowerCase() === pathField.value.toLowerCase()) {
-                    item.callback((data: Buffer) => {
-                        stream.sendResponse(data);
-                    })
+                    item.callback((headers: HeaderField[], data: Buffer) => {
+                        stream.sendResponse(headers, data);
+                    });
+                    return;
                 }
             }
         }
+    }
+
+    get connections(): Connection[] {
+        return this._connections;
     }
 }

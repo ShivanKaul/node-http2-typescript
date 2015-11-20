@@ -333,4 +333,8 @@ export class Connection {
             }
         }
     }
+
+    get clientSettings(): SettingsFrame {
+        return this._clientSettings;
+    }
 }
