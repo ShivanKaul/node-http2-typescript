@@ -1175,6 +1175,7 @@ export class Compression {
                             field.value);
                     blockIndex = encodedString.index;
                     block = encodedString.buffer;
+                    this.addHeaderFieldToDynamicTable(field);
                 }
             } else {
                 // Literal header field with new name
@@ -1191,6 +1192,7 @@ export class Compression {
                     field.value);
                 blockIndex = encodedString.index;
                 block = encodedString.buffer;
+                this.addHeaderFieldToDynamicTable(field);
             }
         }
 
