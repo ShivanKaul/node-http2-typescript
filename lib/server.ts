@@ -43,7 +43,9 @@ export class Server {
         this._server.listen(this._port);
 
         this._responseConfigs = [];
-        this._errorCallback = null;
+        this._errorCallback = (data: Buffer, callback: ServerCallback) => {
+            callback(undefined, undefined);
+        };
     }
 
     onRequest(method: string, url: string, callback: HandlerCallback) {
@@ -94,6 +96,10 @@ export class Server {
                 }
             }
         }
+        this._errorCallback(data, (headers: HeaderField[],
+                                   data: Buffer) => {
+            stream.sendResponse(headers, data);
+        });
     }
 
     get connections(): Connection[] {

@@ -9,3 +9,6 @@ var server = new Server(config);
 server.onRequest("GET", "/", (data: Buffer, callback: ServerCallback) => {
     callback(undefined, new Buffer("Hello, world!"));
 });
+server.onError((data: Buffer, callback: ServerCallback) => {
+    callback(undefined, new Buffer("404!"));
+});

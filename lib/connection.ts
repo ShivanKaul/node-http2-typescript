@@ -59,6 +59,7 @@ export class Connection {
         this._streams = [];
 
         this._serverSettings = new SettingsFrame();
+        // TODO: Fix server push defaults problem
         this._serverSettings.setDefaults();
         this._clientSettings = null;
 
