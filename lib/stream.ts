@@ -4,6 +4,7 @@ import {Frame, FrameType, DataFrame, HeaderTypeFlags, HeaderTypeFrame,
     SettingsParam} from "./frame";
 import {Server} from "./server";
 import {Http2ErrorType, Http2Error} from "./error";
+import {PushPromiseFrame} from "./frame";
 
 export enum StreamState {
     Idle,
@@ -26,7 +27,7 @@ export class Stream {
     private _streamClosedByClient: boolean;
 
     constructor(server: Server, connection: Connection, streamId: number,
-                firstReceivedFrame?: Frame) {
+                firstReceivedFrame?: Frame, isPushResponseStream?: boolean) {
         this._server = server;
         this._connection = connection;
         this._streamId = streamId;
@@ -38,6 +39,10 @@ export class Stream {
 
         if (firstReceivedFrame !== undefined) {
             this.handleFrame(firstReceivedFrame);
+        }
+
+        if (isPushResponseStream) {
+            this._state = StreamState.ReservedLocal;
         }
     }
 
@@ -72,15 +77,21 @@ export class Stream {
         this._server.handleRequest(this, headerFields, dataBuffer);
     }
 
-    sendPushPromise() {
-        // TODO: Implement this method
-        this._state = StreamState.ReservedLocal;
+    sendPushPromise(headers: HeaderField[], data: Buffer) {
+        let newStreamId: number = this._connection.getNextStreamId();
+        let pushPromiseFrame: PushPromiseFrame = new PushPromiseFrame(
+            this._connection.compression, headers,
+            newStreamId, this._streamId, true);
+        this._connection.sendFrame(pushPromiseFrame);
+
+        // TODO: Implement support for CONTINUATION frames
+        this._connection.sendPushResponse(undefined, data, newStreamId);
     }
 
-    sendResponse(headers?: HeaderField[], data?: Buffer) {
+    sendHeaders(headers: HeaderField[], noData: boolean) {
         if (headers === undefined) {
             headers = [];
-            if (data === undefined) {
+            if (noData) {
                 // 404 Not Found
                 headers.push(<HeaderField>{
                     name: ":status",
@@ -96,46 +107,42 @@ export class Stream {
         }
 
         // TODO: Implement support for CONTINUATION frames
-        if (data === undefined) {
-            let headersFrame: HeadersFrame = new HeadersFrame(
-                this._connection.compression, undefined, headers,
-                this._streamId, true, true, false, undefined, undefined,
-                undefined);
-            this._connection.sendFrame(headersFrame);
-        } else {
-            let headersFrame: HeadersFrame = new HeadersFrame(
-                this._connection.compression, undefined, headers,
-                this._streamId, false, true, false, undefined, undefined,
-                undefined);
-            this._connection.sendFrame(headersFrame);
-        }
+        let headersFrame: HeadersFrame = new HeadersFrame(
+            this._connection.compression, undefined, headers,
+            this._streamId, noData, true, false, undefined, undefined,
+            undefined);
+        this._connection.sendFrame(headersFrame);
 
         if (this._state === StreamState.Idle) {
             this._state = StreamState.Open;
         } else if (this._state === StreamState.ReservedLocal) {
             this._state = StreamState.HalfClosedRemote;
         }
+    }
 
-        if (data !== undefined) {
-            let dataIndex: number = 0;
-            let maxFrameSize: number = this._connection.clientSettings.getValue(
-                SettingsParam.MaxFrameSize);
-            while (data.length - dataIndex > maxFrameSize) {
-                let dataBuffer: Buffer = new Buffer(SettingsParam.MaxFrameSize);
-                data.copy(dataBuffer, 0, dataIndex,
-                    dataIndex + dataBuffer.length);
-                let dataFrame: DataFrame = new DataFrame(undefined, dataBuffer,
-                    this._streamId, false);
-                this._connection.sendFrame(dataFrame);
-                dataIndex += dataBuffer.length;
-            }
-
-            let dataBuffer: Buffer = new Buffer(data.length - dataIndex);
-            data.copy(dataBuffer, 0, dataIndex, dataIndex + dataBuffer.length);
-            let dataFrame: DataFrame = new DataFrame(undefined, dataBuffer,
-                this._streamId, true);
-            this._connection.sendFrame(dataFrame);
+    sendData(data: Buffer) {
+        if (data === undefined) {
+            data = new Buffer(0);
         }
+
+        let dataIndex: number = 0;
+        let maxFrameSize: number = this._connection.clientSettings.getValue(
+            SettingsParam.MaxFrameSize);
+        while (data.length - dataIndex > maxFrameSize) {
+            let dataBuffer: Buffer = new Buffer(SettingsParam.MaxFrameSize);
+            data.copy(dataBuffer, 0, dataIndex,
+                dataIndex + dataBuffer.length);
+            let dataFrame: DataFrame = new DataFrame(undefined, dataBuffer,
+                this._streamId, false);
+            this._connection.sendFrame(dataFrame);
+            dataIndex += dataBuffer.length;
+        }
+
+        let dataBuffer: Buffer = new Buffer(data.length - dataIndex);
+        data.copy(dataBuffer, 0, dataIndex, dataIndex + dataBuffer.length);
+        let dataFrame: DataFrame = new DataFrame(undefined, dataBuffer,
+            this._streamId, true);
+        this._connection.sendFrame(dataFrame);
 
         if (this._state === StreamState.Open) {
             this._state = StreamState.HalfClosedLocal;

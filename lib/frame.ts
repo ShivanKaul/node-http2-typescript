@@ -310,14 +310,14 @@ export class SettingsFrame extends Frame {
     static FrameType = FrameType.Settings;
 
     static DefaultParametersLength = 36;
-    static DefaultParameters = [
+    static ServerDefaultParameters = [
         {
             param: SettingsParam.HeaderTableSize,
             value: 4096
         },
         {
             param: SettingsParam.EnablePush,
-            value: 1
+            value: 0
         },
         {
             param: SettingsParam.MaxConcurrentStreams,
@@ -393,7 +393,7 @@ export class SettingsFrame extends Frame {
     }
 
     setDefaults(): void {
-        this._parameters = SettingsFrame.DefaultParameters;
+        this._parameters = SettingsFrame.ServerDefaultParameters;
         this._length = SettingsFrame.DefaultParametersLength;
     }
 
@@ -404,7 +404,7 @@ export class SettingsFrame extends Frame {
             }
         }
 
-        for (let item of SettingsFrame.DefaultParameters) {
+        for (let item of SettingsFrame.ServerDefaultParameters) {
             if (item.param === parameter) {
                 return item.value;
             }
@@ -427,8 +427,45 @@ export class SettingsFrame extends Frame {
     }
 }
 
+export const enum PushPromiseFlags {
+    EndHeaders = 0x4,
+    Padded = 0x8
+}
+
 export class PushPromiseFrame extends Frame {
     static FrameType = FrameType.PushPromise;
+
+    private _compression: Compression;
+
+    private _promisedStreamId: number;
+    private _headerFields: HeaderField[];
+
+    constructor(compression: Compression, headerFields: HeaderField[],
+                promisedStreamId: number, streamId: number,
+                endHeaders: boolean) {
+        super(undefined, 0, PushPromiseFrame.FrameType,
+            (endHeaders ? PushPromiseFlags.EndHeaders : 0), streamId);
+
+        this._compression = compression;
+        this._promisedStreamId = promisedStreamId;
+        this._headerFields = headerFields;
+    }
+
+    getBytes(): Buffer {
+        let block: Buffer = this._compression.encodeHeaderBlock(
+            this._headerFields);
+        this._length = block.length + 4;
+
+        let buffer: Buffer = super.getBytes();
+        let index: number = Frame.HeaderLength;
+
+        buffer.writeUIntBE(this._promisedStreamId & 0x7ffffff, index, 4);
+        index += 4;
+
+        block.copy(buffer, index, 0, block.length);
+
+        return buffer;
+    }
 }
 
 export const enum PingFlags {

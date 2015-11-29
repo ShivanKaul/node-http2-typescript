@@ -43,6 +43,8 @@ export class Connection {
     private _lastServerSettingsAcknowledged: boolean;
     private _lastPingAcknowledged: boolean;
 
+    private _serverStreamIdCounter: number;
+
     /**
      * Initializes a new instance of the Connection class.
      *
@@ -59,7 +61,6 @@ export class Connection {
         this._streams = [];
 
         this._serverSettings = new SettingsFrame();
-        // TODO: Fix server push defaults problem
         this._serverSettings.setDefaults();
         this._clientSettings = null;
 
@@ -78,6 +79,13 @@ export class Connection {
 
         this._lastServerSettingsAcknowledged = false;
         this._lastPingAcknowledged = false;
+
+        this._serverStreamIdCounter = 2;
+    }
+
+    getNextStreamId(): number {
+        this._serverStreamIdCounter += 2;
+        return this._serverStreamIdCounter - 2;
     }
 
     get compression(): Compression {
@@ -91,6 +99,19 @@ export class Connection {
      */
     sendFrame(frame: Frame): void {
         this._socket.write(frame.getBytes());
+    }
+
+    sendPushResponse(headers: HeaderField[], data: Buffer,
+                     newStreamId: number): void {
+        let newStream: StreamEntry = <StreamEntry>{
+            stream: new Stream(this._server, this,
+                newStreamId, undefined, true),
+            streamId: newStreamId
+        };
+        this._streams.push(newStream);
+
+        newStream.stream.sendHeaders(headers, data === undefined);
+        newStream.stream.sendData(data);
     }
 
     /**
@@ -142,10 +163,10 @@ export class Connection {
     }
 
     /**
-     * Called when a frame has been received from the server. Processes the
+     * Called when a frame has been received from the client. Processes the
      * frames by calling the appropriate method.
      *
-     * @param frame The frame received from the server.
+     * @param frame The frame received from the client.
      */
     private handleFrame(frame: Frame): void {
         try {
