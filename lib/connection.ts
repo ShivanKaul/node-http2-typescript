@@ -93,9 +93,9 @@ export class Connection {
     }
 
     /**
-     * Sends a frame to the server.
+     * Sends a frame to the client.
      *
-     * @param frame The frame to send to the server.
+     * @param frame The frame to send to the client.
      */
     sendFrame(frame: Frame): void {
         this._socket.write(frame.getBytes());
@@ -115,7 +115,7 @@ export class Connection {
     }
 
     /**
-     * Sends a GOAWAY frame to the server when an error occurs.
+     * Sends a GOAWAY frame to the client when an error occurs.
      *
      * @param error The error that occurred.
      */
